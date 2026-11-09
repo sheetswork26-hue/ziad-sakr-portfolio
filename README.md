@@ -2,6 +2,14 @@
 
 Astro static site. Mobile-first, n8n-inspired palette, falcon (Sakr) logo.
 
+**Live:** https://ziad-sakr-portfolio.pages.dev · **Repo:** github.com/sheetswork26-hue/ziad-sakr-portfolio (private)
+
+### Update the live site after a change
+```bash
+npm run build
+npx wrangler pages deploy dist --project-name ziad-sakr-portfolio --branch main
+```
+
 ## Run locally
 ```bash
 npm install
