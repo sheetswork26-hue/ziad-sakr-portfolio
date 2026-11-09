@@ -1,0 +1,229 @@
+---
+// Home page, shared by "/" (en) and "/ar/" (ar). All text comes from src/i18n.ts.
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import AutomationStory from './AutomationStory.astro';
+import IntroHero from './IntroHero3.astro';
+import ProjectCard from './ProjectCard.astro';
+import { site } from '../site';
+import { t, type Lang } from '../i18n';
+
+interface Props { lang: Lang; }
+const { lang } = Astro.props;
+const T = t(lang);
+
+// Projects stay in English on both languages (case studies are English-only).
+const projects = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+const runs = projects.map((p) => {
+  const flow = p.data.flow;
+  const ai = flow.find((s) => s.kind === 'ai') ?? flow[Math.floor(flow.length / 2)];
+  const m = p.data.metrics[0];
+  return { slug: p.id, title: p.data.title, trigger: flow[0].label, ai: ai.label, result: flow[flow.length - 1].label, metric: `${m.value} · ${m.label}` };
+});
+const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i] ?? s.label }));
+---
+<Base lang={lang}>
+  <link slot="head" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+
+  <!-- INTRO: before/after automation animation (once per visit, skippable) → hero with photo + live runs -->
+  <AutomationStory lang={lang} />
+  <IntroHero lang={lang} name={site.name} photo="/me.webp" stats={stats} runs={runs} />
+
+  <!-- WORK -->
+  <section id="work" class="work">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">{T.work.eyebrow}</span>
+          <h2>{T.work.title}</h2>
+        </div>
+        <p>{T.work.text}</p>
+      </div>
+      <div class="cards">
+        {projects.map((p, i) => <ProjectCard project={p} index={i} />)}
+      </div>
+    </div>
+  </section>
+
+  <!-- SERVICES -->
+  <section id="services" class="services">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">{T.servicesHead.eyebrow}</span>
+          <h2>{T.servicesHead.title}</h2>
+        </div>
+      </div>
+      <div class="svc-grid">
+        {T.services.map((s) => (
+          <article class={`svc k-${s.k}`}>
+            <span class="svc-icon" aria-hidden="true"></span>
+            <h3>{s.title}</h3>
+            <p>{s.body}</p>
+            <ul class="mono">{s.items.map((it) => <li>{it}</li>)}</ul>
+          </article>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- PROCESS -->
+  <section id="process" class="process">
+    <div class="wrap">
+      <div class="section-head">
+        <div>
+          <span class="eyebrow">{T.processHead.eyebrow}</span>
+          <h2>{T.processHead.title}</h2>
+        </div>
+        <p>{T.processHead.text}</p>
+      </div>
+      <ol class="steps">
+        {T.process.map((p) => (<li><span class="mono n">{p.n}</span><h3>{p.title}</h3><p>{p.body}</p></li>))}
+      </ol>
+    </div>
+  </section>
+
+  <!-- CONTACT -->
+  <section id="contact" class="contact">
+    <div class="wrap contact-inner">
+      <div>
+        <span class="eyebrow">{T.contact.eyebrow}</span>
+        <h2>{T.contact.title}</h2>
+        <p class="lede">{T.contact.lede}</p>
+        <div class="direct">
+          <a class="btn wa" href={site.links.whatsapp} target="_blank" rel="noopener">{T.hero.whatsapp} · <span class="mono" dir="ltr">{site.whatsapp}</span></a>
+          <a class="btn" href={site.links.linkedin} target="_blank" rel="noopener">LinkedIn ↗</a>
+        </div>
+        <p class="mono note">{T.contact.note}</p>
+      </div>
+      <form class="form" data-key={site.web3formsKey} data-lang={lang} data-msg={JSON.stringify(T.contact.msg)} novalidate>
+        <label>{T.contact.name}<input name="name" required autocomplete="name" dir="auto" maxlength="80" /></label>
+        <label>{T.contact.email}<input name="email" type="email" required autocomplete="email" inputmode="email" maxlength="120" dir="ltr" /></label>
+        <label>{T.contact.phone} <span class="opt">{T.contact.optional}</span>
+          <input name="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+20 10x xxx xxxx" maxlength="20" dir="ltr" />
+        </label>
+        <label>{T.contact.message}<textarea name="message" rows="4" required dir="auto" maxlength="3000"></textarea></label>
+        <input type="text" name="_honey" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true" />
+        <button class="btn btn-primary" type="submit">{T.contact.send} <span class="arrow">→</span></button>
+        <p class="form-status mono" role="status" aria-live="polite"></p>
+      </form>
+    </div>
+  </section>
+</Base>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('.form');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const M = JSON.parse(form.dataset.msg || '{}') as Record<string, string>;
+    const status = form.querySelector<HTMLElement>('.form-status')!;
+    const btn = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const data = Object.fromEntries(new FormData(form)) as Record<string, string>;
+    const setStatus = (msg: string, kind: '' | 'ok' | 'err' = '') => { status.textContent = msg; status.dataset.kind = kind; };
+
+    if (data._honey) return; // bot
+    const phone = (data.phone || '').trim();
+    if (!data.name?.trim()) return setStatus(M.name, 'err');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email || '')) return setStatus(M.email, 'err');
+    if (phone && !/^\+?[\d\s\-()]{7,20}$/.test(phone)) return setStatus(M.phone, 'err');
+    if (!data.message?.trim()) return setStatus(M.message, 'err');
+
+    const key = form.dataset.key;
+    if (!key) return setStatus(M.noKey, 'err');
+
+    btn.disabled = true;
+    setStatus(M.sending);
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      const res = await fetch('https://api.web3forms.com/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        signal: ctrl.signal,
+        body: JSON.stringify({
+          access_key: key,
+          subject: `New portfolio inquiry from ${data.name.trim()}${form.dataset.lang === 'ar' ? ' (Arabic site)' : ''}`,
+          from_name: 'Ziad Sakr — Portfolio',
+          name: data.name.trim(),
+          email: data.email.trim(),
+          phone: phone || '—',
+          message: data.message.trim(),
+          language: form.dataset.lang,
+        }),
+      });
+      clearTimeout(timer);
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok || out.success !== true) {
+        console.error('Contact form error:', res.status, out.message);
+        throw new Error(out.message || 'send failed');
+      }
+      form.reset();
+      setStatus(M.ok, 'ok');
+    } catch {
+      setStatus(M.fail, 'err');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .lede { color: var(--muted); font-size: 18.5px; max-width: 50ch; }
+
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 680px) { .cards { grid-template-columns: 1fr; } }
+
+  .services { background: var(--bg-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .svc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 760px) { .svc-grid { grid-template-columns: 1fr; } }
+  .svc { padding: 30px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); display: flex; flex-direction: column; gap: 14px; }
+  .svc-icon { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--k); background: color-mix(in srgb, var(--k) 16%, transparent); position: relative; }
+  .svc-icon::after { content: ''; position: absolute; inset: 12px; border-radius: 3px; background: var(--k); }
+  .svc h3 { font-size: 22px; }
+  .svc p { color: var(--muted); font-size: 15.5px; }
+  .svc ul { list-style: none; padding: 16px 0 0; margin: auto 0 0; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--muted); display: grid; gap: 6px; }
+  .svc li::before { content: '→ '; color: var(--k); }
+
+  .steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; counter-reset: s; }
+  .steps li { padding: 28px 24px 0 0; border-top: 1px solid var(--line-2); position: relative; }
+  .steps li::before { content: ''; position: absolute; top: -5px; left: 0; width: 9px; height: 9px; border-radius: 2px; background: var(--accent); }
+  .steps .n { color: var(--accent); font-size: 13px; }
+  .steps h3 { font-size: 20px; margin: 10px 0 8px; }
+  .steps p { color: var(--muted); font-size: 15px; }
+  @media (max-width: 860px) { .steps { grid-template-columns: 1fr 1fr; row-gap: 36px; } }
+  @media (max-width: 520px) { .steps { grid-template-columns: 1fr; } }
+
+  .contact-inner { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: start; }
+  @media (max-width: 860px) { .contact-inner { grid-template-columns: 1fr; } }
+  .contact h2 { font-size: clamp(32px, 4.4vw, 50px); margin: 14px 0 18px; }
+  .direct { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .direct .wa { background: #25d366; border-color: #25d366; color: #06170c; }
+  .direct .wa:hover { background: #3be07a; border-color: #3be07a; }
+  .direct .wa .mono { font-size: 13.5px; }
+  @media (max-width: 520px) { .direct .btn { width: 100%; justify-content: center; } }
+  .note { margin-top: 28px; font-size: 12.5px; color: var(--faint); padding: 12px 14px; border: 1px dashed var(--line-2); border-radius: 10px; max-width: 48ch; }
+  .form { display: grid; gap: 16px; padding: 28px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+  .form label { display: grid; gap: 7px; font-size: 14px; color: var(--muted); }
+  .form input, .form textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line-2); border-radius: 9px; padding: 12px 14px; resize: vertical; }
+  .form input:focus, .form textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .form input::placeholder { color: var(--faint); }
+  .form input:-webkit-autofill, .form input:-webkit-autofill:hover, .form input:-webkit-autofill:focus, .form textarea:-webkit-autofill {
+    -webkit-text-fill-color: var(--text); caret-color: var(--text);
+    -webkit-box-shadow: 0 0 0 1000px var(--bg) inset; box-shadow: 0 0 0 1000px var(--bg) inset;
+    transition: background-color 9999s ease-out;
+  }
+  .form .opt { color: var(--faint); font-size: 12.5px; }
+  /* honeypot: visually hidden without off-screen offsets (offsets create sideways scroll in RTL) */
+  .form .hp { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; opacity: 0; pointer-events: none; }
+  .form button { justify-content: center; }
+  .form button:disabled { opacity: .6; cursor: wait; transform: none; }
+  .form-status { font-size: 13px; color: var(--muted); min-height: 1em; }
+  .form-status[data-kind="ok"] { color: var(--k-action); }
+  .form-status[data-kind="err"] { color: #f87171; }
+  @media (max-width: 520px) { .form { padding: 20px; } .form input, .form textarea { font-size: 16px; } }
+
+  /* RTL (Arabic) */
+  :global([dir="rtl"]) .svc li::before { content: '← '; }
+  :global([dir="rtl"]) .steps li { padding: 28px 0 0 24px; }
+  :global([dir="rtl"]) .steps li::before { left: auto; right: 0; }
+</style>

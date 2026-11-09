@@ -4,7 +4,7 @@ interface Props { project: any; index: number; }
 const { project, index } = Astro.props;
 const d = project.data;
 ---
-<a href={`/projects/${project.id}/`} class="card" style={`--c:${d.accent}`}>
+<a href={`/projects/${project.id}/`} class="card" style={`--c:${d.accent}`} dir="ltr" lang="en">
   <div class="top">
     <span class="mono idx">{String(index + 1).padStart(2, '0')}</span>
     <span class="mono industry">{d.industry}</span>

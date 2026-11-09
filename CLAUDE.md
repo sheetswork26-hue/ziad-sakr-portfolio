@@ -7,6 +7,10 @@ Ziad Sakr's portfolio — Astro static site, live at https://ziad-sakr-portfolio
 - For any **visual/design change**, show a preview/options first and apply only after he approves.
 - Don't add Upwork / n8n Creators links (he doesn't have them yet). Never invent metrics — numbers come from his real projects.
 
+## Languages
+- EN at `/`, AR (Modern Standard Arabic, RTL) at `/ar/`; both render `src/components/HomePage.astro` with `lang`. Project case studies are English-only (cards stay `dir="ltr"`).
+- All UI text: `src/i18n.ts` (keep `en`/`ar` in sync). Switcher: `src/components/LangSwitch.astro` (sliding pill). Use logical CSS (`inline-start/end`), never off-screen negative offsets (they create sideways scroll in RTL).
+
 ## Where things live
 - Personal data, links, stats, Web3Forms key: `src/site.ts`
 - Projects: `src/content/projects/*.md` (schema in `src/content.config.ts`); sanitized workflows in `public/workflows/` (strip credentials/IDs/phones)

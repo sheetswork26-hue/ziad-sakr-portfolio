@@ -3,7 +3,11 @@
 // → a workflow switches on and sweeps the mess away → after automation (relaxed, work runs itself).
 // Plays ONCE per visit (browser tab). Not replayed when coming back to Home, refreshing,
 // or opening a section link like /#work. Force it with /?intro. Skip / Esc available.
-// Dispatches `scene:done` so the hero starts.
+// Dispatches `scene:done` so the hero starts. Text comes from src/i18n.ts (story).
+import { t, type Lang } from '../i18n';
+interface Props { lang?: Lang; }
+const { lang = 'en' } = Astro.props;
+const S = t(lang).story;
 ---
 <script is:inline>
   (function () {
@@ -16,29 +20,29 @@
     } catch (e) {}
   })();
 </script>
-<div class="story" data-scene role="img" aria-label="Animation: before automation an employee is overwhelmed with manual tasks; after automation the same work runs by itself and he relaxes.">
+<div class="story" data-scene role="img" aria-label={S.aria}>
   <div class="st-grid" aria-hidden="true"></div>
 
   <div class="st-wrap" aria-hidden="true">
     <div class="st-head">
-      <span class="tag bad mono">Before automation</span>
-      <span class="tag good mono">After automation</span>
+      <span class="tag bad mono">{S.before}</span>
+      <span class="tag good mono">{S.after}</span>
     </div>
 
     <p class="st-line">
-      <span class="lb">Hours of copy, paste &amp; chasing messages — every single day.</span>
-      <span class="la">The same work. Done automatically, in seconds.</span>
+      <span class="lb">{S.lineBefore}</span>
+      <span class="la">{S.lineAfter}</span>
     </p>
 
-    <svg class="art" viewBox="0 0 420 290" fill="none">
+    <svg class="art" viewBox="0 0 420 290" fill="none" direction="ltr">
       <!-- ===== workflow that appears at the switch ===== -->
       <g class="flow">
         <path class="fl-line" d="M133 34 H163 M255 34 H285" pathLength="1" />
         <path class="fl-pulse a" d="M133 34 H163" pathLength="1" />
         <path class="fl-pulse b" d="M255 34 H285" pathLength="1" />
-        <g class="fl-node n1"><rect x="73" y="22" width="60" height="24" rx="7" /><circle cx="86" cy="34" r="4" class="d-trig" /><text x="94" y="37">Trigger</text></g>
-        <g class="fl-node n2"><rect x="163" y="22" width="92" height="24" rx="7" /><circle cx="176" cy="34" r="4" class="d-ai" /><text x="184" y="37">AI Automation</text></g>
-        <g class="fl-node n3"><rect x="285" y="22" width="62" height="24" rx="7" /><circle cx="298" cy="34" r="4" class="d-act" /><text x="306" y="37">Done ✓</text></g>
+        <g class="fl-node n1"><rect x="73" y="22" width="60" height="24" rx="7" /><circle cx="86" cy="34" r="4" class="d-trig" /><text x="94" y="37">{S.flow[0]}</text></g>
+        <g class="fl-node n2"><rect x="163" y="22" width="92" height="24" rx="7" /><circle cx="176" cy="34" r="4" class="d-ai" /><text x="184" y="37">{S.flow[1]}</text></g>
+        <g class="fl-node n3"><rect x="285" y="22" width="62" height="24" rx="7" /><circle cx="298" cy="34" r="4" class="d-act" /><text x="306" y="37">{S.flow[2]}</text></g>
       </g>
 
       <!-- ===== clock (before only) ===== -->
@@ -69,14 +73,14 @@
         <rect x="243" y="128" width="32" height="24" rx="2" class="win" />
         <line x1="247" y1="135" x2="270" y2="135" class="wl" /><line x1="247" y1="140" x2="262" y2="140" class="wl" />
         <path d="M236 140 h6 m-3 -3 l3 3 l-3 3" class="cp-arrow" />
-        <text x="239" y="170" class="scr-t bad-t" text-anchor="middle">copy → paste ×127</text>
+        <text x="239" y="170" class="scr-t bad-t" text-anchor="middle">{S.screenBefore}</text>
       </g>
       <!-- screen: after = mini workflow running -->
       <g class="scr af">
         <line x1="214" y1="142" x2="264" y2="142" class="mini-l" />
         <circle cx="214" cy="142" r="6" class="mini n-a" /><circle cx="239" cy="142" r="6" class="mini n-b" /><circle cx="264" cy="142" r="6" class="mini n-c" />
         <circle cx="214" cy="142" r="2.2" class="mini-p" />
-        <text x="239" y="170" class="scr-t good-t" text-anchor="middle">● workflows running</text>
+        <text x="239" y="170" class="scr-t good-t" text-anchor="middle">{S.screenAfter}</text>
       </g>
 
       <!-- ===== paper piles (before) ===== -->
@@ -119,19 +123,19 @@
       </g>
 
       <!-- ===== notifications (before) ===== -->
-      <g class="note bf n1"><rect x="16" y="62" width="118" height="22" rx="8" /><text x="75" y="76.5" text-anchor="middle">✉ 47 unread emails</text></g>
-      <g class="note bf n2"><rect x="148" y="60" width="118" height="22" rx="8" /><text x="207" y="74.5" text-anchor="middle">💬 32 new messages</text></g>
-      <g class="note bf n3"><rect x="112" y="94" width="80" height="22" rx="8" /><text x="152" y="108.5" text-anchor="middle">🧾 Invoice??</text></g>
+      <g class="note bf n1"><rect x="16" y="62" width="118" height="22" rx="8" /><text x="75" y="76.5" text-anchor="middle">{S.notes[0]}</text></g>
+      <g class="note bf n2"><rect x="148" y="60" width="118" height="22" rx="8" /><text x="207" y="74.5" text-anchor="middle">{S.notes[1]}</text></g>
+      <g class="note bf n3"><rect x="112" y="94" width="80" height="22" rx="8" /><text x="152" y="108.5" text-anchor="middle">{S.notes[2]}</text></g>
 
       <!-- ===== checklist (after) ===== -->
       <g class="check af">
         <rect x="128" y="50" width="96" height="66" rx="9" class="ch-card" />
-        <text x="138" y="63" class="ch-title">Today</text>
-        {['Leads saved', 'Replies sent', 'Invoices', 'Report'].map((t, i) => (
+        <text x="138" y="63" class="ch-title">{S.today}</text>
+        {S.checklist.map((item, i) => (
           <g class="ch-row" style={`--i:${i}`}>
             <rect x="138" y={67 + i * 11.5} width="8" height="8" rx="2" class="ch-box" />
             <path d={`M139.5 ${71 + i * 11.5} l2 2 l3.5 -4`} class="ch-tick" />
-            <text x="151" y={74 + i * 11.5} class="ch-t">{t}</text>
+            <text x="151" y={74 + i * 11.5} class="ch-t">{item}</text>
           </g>
         ))}
       </g>
@@ -139,16 +143,16 @@
     </svg>
 
     <div class="meter mono">
-      <span>Tasks done <b data-tasks>3</b>/40</span>
+      <span>{S.tasks} <b data-tasks>3</b>/40</span>
       <span class="sep">·</span>
-      <span>Manual work <b data-hours>5h</b>/day</span>
+      <span>{S.manual} <b data-hours>5</b>{S.hUnit}</span>
     </div>
   </div>
 
-  <p class="punch" aria-hidden="true">I build the <em>after</em>.</p>
+  <p class="punch" aria-hidden="true" set:html={S.punch}></p>
 
   <div class="prog" aria-hidden="true"><i></i></div>
-  <button class="skip mono" type="button">Skip intro <span class="sk-arrow" aria-hidden="true">→</span></button>
+  <button class="skip mono" type="button">{S.skip} <span class="sk-arrow" aria-hidden="true">→</span></button>
 </div>
 
 <script>
@@ -185,11 +189,11 @@
       root.className = 'story';
       void root.offsetWidth;
       document.documentElement.style.overflow = 'hidden';
-      tasks.textContent = '3'; hours.textContent = '5h';
+      tasks.textContent = '3'; hours.textContent = '5';
       root.classList.add('p-before', 'run');
       later(() => count(3, 7, 3800), 300);
       later(() => root.classList.add('p-switch'), 4500);
-      later(() => { root.classList.remove('p-before'); root.classList.add('p-after'); count(7, 40, 1300); hours.textContent = '0h'; }, 5400);
+      later(() => { root.classList.remove('p-before'); root.classList.add('p-after'); count(7, 40, 1300); hours.textContent = '0'; }, 5400);
       later(() => root.classList.add('p-end'), 9300);
       later(finish, 10600);
     };
@@ -230,7 +234,7 @@
 
   /* captions */
   .st-head { position: relative; height: 30px; }
-  .tag { position: absolute; left: 0; top: 0; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px; transition: opacity .4s ease, transform .4s var(--ease-out); }
+  .tag { position: absolute; inset-inline-start: 0; top: 0; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px; transition: opacity .4s ease, transform .4s var(--ease-out); }
   .tag.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); opacity: 0; }
   .tag.good { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); border: 1px solid color-mix(in srgb, var(--good) 35%, transparent); opacity: 0; transform: translateY(8px); }
   .p-before .tag.bad { opacity: 1; }
@@ -329,6 +333,7 @@
   /* punchline + progress */
   .punch { position: absolute; left: 0; right: 0; bottom: 18%; text-align: center; font-size: clamp(26px, 6vw, 40px); font-weight: 500; letter-spacing: -0.03em; opacity: 0; transform: translateY(10px); transition: opacity .5s ease, transform .5s var(--ease-out); }
   .punch em { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; color: var(--accent); font-size: 1.12em; }
+  :global([dir="rtl"]) .punch em { font-family: inherit; font-style: normal; font-weight: 600; font-size: 1em; }
   .p-end .punch { opacity: 1; transform: none; }
   .p-end .st-wrap { opacity: .15; transition: opacity .5s ease; }
   .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--line); }

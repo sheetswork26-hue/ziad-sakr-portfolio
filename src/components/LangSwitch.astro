@@ -1,0 +1,58 @@
+---
+// Sliding pill language switch: EN | ع. Tap or swipe; the pink block slides, then the page switches.
+import type { Lang } from '../i18n';
+interface Props { lang: Lang; href: string; }
+const { lang, href } = Astro.props;
+---
+<a class="lang-switch" href={href} data-l={lang} hreflang={lang === 'en' ? 'ar' : 'en'} dir="ltr"
+   aria-label={lang === 'en' ? 'التبديل إلى العربية' : 'Switch to English'}>
+  <span class="th" aria-hidden="true"></span>
+  <span class="opt en" lang="en">EN</span>
+  <span class="opt ar" lang="ar">ع</span>
+</a>
+
+<script>
+  document.querySelectorAll<HTMLAnchorElement>('.lang-switch').forEach((el) => {
+    let x0: number | null = null;
+    let moved = false;
+    const go = () => {
+      const to = el.dataset.l === 'en' ? 'ar' : 'en';
+      el.dataset.l = to;                               // slide the pill first…
+      setTimeout(() => { location.href = el.href; }, 260); // …then switch page
+    };
+    el.addEventListener('click', (e) => { e.preventDefault(); if (!moved) go(); moved = false; });
+    el.addEventListener('pointerdown', (e) => { x0 = e.clientX; moved = false; });
+    el.addEventListener('pointermove', (e) => {
+      if (x0 === null) return;
+      const dx = e.clientX - x0;
+      // swipe right → Arabic, swipe left → English
+      if ((dx > 14 && el.dataset.l === 'en') || (dx < -14 && el.dataset.l === 'ar')) { moved = true; x0 = null; go(); }
+    });
+    el.addEventListener('pointerup', () => { x0 = null; });
+  });
+</script>
+
+<style>
+  .lang-switch {
+    position: relative; display: inline-flex; flex-shrink: 0;
+    width: 86px; height: 34px; padding: 3px; border-radius: 999px;
+    background: var(--surface-2); border: 1px solid var(--line-2);
+    user-select: none; -webkit-user-select: none; touch-action: pan-y; cursor: pointer;
+  }
+  .lang-switch:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line-2)); }
+  .lang-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .th {
+    position: absolute; top: 3px; left: 3px; width: 39px; height: 26px; border-radius: 999px;
+    background: var(--accent-strong); box-shadow: 0 4px 14px -4px color-mix(in srgb, var(--accent) 70%, transparent);
+    transition: transform .35s cubic-bezier(.34, 1.56, .64, 1);
+  }
+  .lang-switch[data-l="ar"] .th { transform: translateX(41px); }
+  .opt {
+    position: relative; z-index: 1; flex: 1; display: grid; place-items: center;
+    font-size: 12.5px; font-weight: 600; color: var(--muted); transition: color .25s ease;
+    font-family: var(--font); letter-spacing: 0;
+  }
+  .opt.ar { font-family: 'IBM Plex Sans Arabic', var(--font); font-size: 15px; line-height: 1; }
+  .lang-switch[data-l="en"] .opt.en, .lang-switch[data-l="ar"] .opt.ar { color: #fff; }
+  @media (max-width: 380px) { .lang-switch { width: 78px; } .th { width: 35px; } .lang-switch[data-l="ar"] .th { transform: translateX(37px); } }
+</style>
