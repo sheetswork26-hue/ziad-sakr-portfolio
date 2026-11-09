@@ -1,7 +1,7 @@
 import { defineConfig } from 'astro/config';
 
-// Change `site` to your real domain before deploying (used for SEO / sitemap / OG tags).
+// Live URL (Cloudflare Pages). Change it if you add a custom domain — used for SEO / OG share image.
 export default defineConfig({
-  site: 'https://example.com',
+  site: 'https://ziad-sakr.pages.dev',
   server: { port: 4321 },
 });
