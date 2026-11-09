@@ -57,6 +57,22 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     </header>
 
     <script>
+      // Auto-hide header (CSS applies it on phones only): hide on scroll down, show on scroll up.
+      const nav = document.querySelector<HTMLElement>('header.nav');
+      if (nav) {
+        let lastY = scrollY, ticking = false;
+        const update = () => {
+          const y = scrollY, dy = y - lastY;
+          if (y < nav.offsetHeight) nav.classList.remove('nav-hide');          // near the top: always visible
+          else if (dy > 6) nav.classList.add('nav-hide');                      // scrolling down
+          else if (dy < -6) nav.classList.remove('nav-hide');                  // scrolling up
+          if (Math.abs(dy) > 6) lastY = y;
+          ticking = false;
+        };
+        addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } }, { passive: true });
+        nav.addEventListener('focusin', () => nav.classList.remove('nav-hide')); // keyboard users
+      }
+
       // Scroll-spy: highlight the menu item of the section currently on screen.
       const links = [...document.querySelectorAll<HTMLAnchorElement>('[data-spy]')];
       const sections = [...new Set(links.map((a) => a.dataset.spy!))]
@@ -123,6 +139,11 @@ const canonical = new URL(Astro.url.pathname, Astro.site);
     backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
     background: color-mix(in srgb, var(--bg) 78%, transparent);
     border-bottom: 1px solid var(--line);
+  }
+  /* phones: header hides while scrolling down, comes back on scroll up */
+  @media (max-width: 720px) {
+    .nav { transition: transform .32s cubic-bezier(.16, 1, .3, 1); will-change: transform; }
+    .nav.nav-hide { transform: translateY(-100%); }
   }
   .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 68px; }
   .brand { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.01em; }
