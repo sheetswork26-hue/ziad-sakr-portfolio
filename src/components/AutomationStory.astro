@@ -1,8 +1,21 @@
 ---
 // ~10s illustrated opening: the SAME employee before automation (drowning in work)
 // → a workflow switches on and sweeps the mess away → after automation (relaxed, work runs itself).
-// Plays on every visit (Skip / Esc available). Dispatches `scene:done` so the hero starts.
+// Plays ONCE per visit (browser tab). Not replayed when coming back to Home, refreshing,
+// or opening a section link like /#work. Force it with /?intro. Skip / Esc available.
+// Dispatches `scene:done` so the hero starts.
 ---
+<script is:inline>
+  (function () {
+    try {
+      var q = new URLSearchParams(location.search);
+      var seen = sessionStorage.getItem('zs-intro-seen') === '1';
+      if (q.has('intro')) seen = false;          // /?intro → always play
+      else if (location.hash) seen = true;       // /#work, /#contact → go straight to the section
+      if (seen) document.documentElement.classList.add('intro-seen');
+    } catch (e) {}
+  })();
+</script>
 <div class="story" data-scene role="img" aria-label="Animation: before automation an employee is overwhelmed with manual tasks; after automation the same work runs by itself and he relaxes.">
   <div class="st-grid" aria-hidden="true"></div>
 
@@ -135,7 +148,7 @@
   <p class="punch" aria-hidden="true">I build the <em>after</em>.</p>
 
   <div class="prog" aria-hidden="true"><i></i></div>
-  <button class="skip mono" type="button">Skip intro →</button>
+  <button class="skip mono" type="button">Skip intro <span class="sk-arrow" aria-hidden="true">→</span></button>
 </div>
 
 <script>
@@ -184,10 +197,14 @@
     root.querySelector('.skip')!.addEventListener('click', finish);
     addEventListener('keydown', (e) => { if (e.key === 'Escape') finish(); });
 
-    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    // Once per visit: the inline script above already marked <html class="intro-seen">
+    // when the intro was shown earlier in this tab, or the URL targets a section (/#work).
+    const seen = document.documentElement.classList.contains('intro-seen');
+    if (seen || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       root.classList.add('gone');
       setTimeout(() => window.dispatchEvent(new CustomEvent('scene:done')), 0);
     } else {
+      try { sessionStorage.setItem('zs-intro-seen', '1'); } catch {}
       play();
     }
     (window as any).replayScene = play;
@@ -203,7 +220,7 @@
     padding: 24px 16px 64px; overflow: hidden;
   }
   .story.out { animation: out .7s var(--ease) forwards; pointer-events: none; }
-  .story.gone { display: none; }
+  .story.gone, :global(html.intro-seen) .story { display: none; }
   .st-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 40px 40px; opacity: .28; mask-image: radial-gradient(ellipse at center, #000 15%, transparent 70%); -webkit-mask-image: radial-gradient(ellipse at center, #000 15%, transparent 70%); }
   .story::after { content: ''; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, color-mix(in srgb, var(--bad) 18%, transparent)); opacity: 0; transition: opacity .6s ease; }
   .p-before::after { opacity: 1; }
@@ -317,8 +334,38 @@
   .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--line); }
   .prog i { display: block; height: 100%; width: 0; background: var(--accent); }
   .run .prog i { animation: grow 10.6s linear forwards; }
-  .skip { position: absolute; right: 16px; bottom: 16px; z-index: 5; background: var(--bg-2); border: 1px solid var(--line-2); color: var(--muted); font-size: 12px; padding: 9px 14px; border-radius: 999px; cursor: pointer; }
-  .skip:hover { color: var(--text); border-color: var(--muted); }
+  /* Skip: slides up from the bottom, then breathes with a soft pink glow so it gets noticed */
+  .skip {
+    position: absolute; left: 50%; bottom: 22px; z-index: 5;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 20px; border-radius: 999px; cursor: pointer;
+    font-size: 13px; letter-spacing: .02em; color: var(--text);
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 60%, transparent);
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    opacity: 0; transform: translate(-50%, 28px);
+    transition: background .2s ease, color .2s ease, border-color .2s ease;
+    overflow: hidden;
+  }
+  .skip::before {
+    content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,.22) 50%, transparent 70%);
+    transform: translateX(-120%);
+  }
+  .sk-arrow { display: inline-block; color: var(--accent); }
+  .run .skip { animation: skipIn .6s var(--ease-out) forwards .8s, skipGlow 2.4s ease-in-out infinite 1.5s; }
+  .run .skip::before { animation: skipShine 2.4s ease-in-out infinite 1.5s; }
+  .run .sk-arrow { animation: skipNudge 1.2s ease-in-out infinite 1.5s; }
+  .skip:hover, .skip:focus-visible { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; outline: none; }
+  .skip:hover .sk-arrow, .skip:focus-visible .sk-arrow { color: #fff; }
+  @keyframes skipIn { to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes skipGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(234,75,113,0), 0 0 12px rgba(234,75,113,.22); }
+    50% { box-shadow: 0 0 0 6px rgba(234,75,113,.12), 0 0 28px rgba(234,75,113,.55); }
+  }
+  @keyframes skipShine { 0% { transform: translateX(-120%); } 45%, 100% { transform: translateX(120%); } }
+  @keyframes skipNudge { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(4px); } }
+  @media (prefers-reduced-motion: reduce) { .skip { opacity: 1; transform: translate(-50%, 0); } }
 
   @keyframes spin { to { transform: rotate(360deg); } }
   @keyframes frantic { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-7deg); } 60% { transform: rotate(6deg); } }

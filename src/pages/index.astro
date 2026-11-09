@@ -18,6 +18,7 @@ const services = [
   { k: 'ai', title: 'AI Agents & Chatbots', body: 'Support, sales and internal agents on WhatsApp, Telegram, Slack or your site — grounded in your data with RAG, tools and human hand-off.', items: ['OpenAI · Claude · Gemini', 'Vector stores & RAG', 'Memory + tool calling'] },
   { k: 'action', title: 'Business Process Automation', body: 'Lead routing, onboarding, invoicing, reporting — the repetitive work your team does every day, turned into reliable workflows.', items: ['CRM & marketing ops', 'Finance & back-office', 'Scheduled reporting'] },
   { k: 'data', title: 'Integrations & Data Pipelines', body: 'Connect the tools that don\'t talk to each other. Custom APIs, webhooks, syncing and data cleaning between any systems.', items: ['REST / GraphQL / webhooks', 'Postgres · Sheets · Airtable', 'Self-hosted n8n setup'] },
+  { k: 'logic', title: 'Front-end & Web Apps', body: 'Fast, responsive websites and web apps — landing pages, portfolios, order forms and dashboards — wired straight into your automations. This site is one of them.', items: ['Astro · HTML · CSS · JavaScript', 'Mobile-first, SEO-ready, fast', 'Forms connected to n8n & APIs'] },
 ];
 
 const process = [
@@ -177,8 +178,8 @@ const process = [
   @media (max-width: 680px) { .cards { grid-template-columns: 1fr; } }
 
   .services { background: var(--bg-2); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .svc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-  @media (max-width: 900px) { .svc-grid { grid-template-columns: 1fr; } }
+  .svc-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  @media (max-width: 760px) { .svc-grid { grid-template-columns: 1fr; } }
   .svc { padding: 30px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); display: flex; flex-direction: column; gap: 14px; }
   .svc-icon { width: 40px; height: 40px; border-radius: 10px; border: 1.5px solid var(--k); background: color-mix(in srgb, var(--k) 16%, transparent); position: relative; }
   .svc-icon::after { content: ''; position: absolute; inset: 12px; border-radius: 3px; background: var(--k); }

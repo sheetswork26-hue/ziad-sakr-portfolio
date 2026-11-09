@@ -1,10 +1,10 @@
 // Edit your personal info here — used across the whole site.
 export const site = {
   name: 'Ziad Sakr',
-  role: 'AI Automation Engineer · Backend Developer',
+  role: 'AI Automation Engineer · Full-Stack Developer',
   tagline: 'I automate the boring parts of your business.',
   description:
-    'I design and ship AI agents, n8n automations and the backend behind them — with validation, deduplication, security and error monitoring built in.',
+    'I design and ship AI agents, n8n automations, the backend behind them and fast, mobile-first front-ends (Astro, JavaScript) — with validation, security and error monitoring built in.',
   email: 'ziadsakr261@gmail.com',
   // Contact form → your inbox via Web3Forms (free, no backend; formsubmit.co was unreachable).
   // Get a free Access Key at https://web3forms.com (enter ziadsakr261@gmail.com) and paste it below.
