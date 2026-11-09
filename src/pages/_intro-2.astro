@@ -1,0 +1,20 @@
+---
+// Attempt 2 (تجربة 2) — editorial / premium intro. Not linked from the site yet.
+import Base from '../layouts/Base.astro';
+import IntroHero from '../components/IntroHero2.astro';
+import { site } from '../site';
+---
+<Base title="Intro — Attempt 2">
+  <link slot="head" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
+  <IntroHero name={site.name} photo="/me.webp" stats={site.stats} />
+  <button class="replay mono" onclick="window.replayIntro && window.replayIntro()">↻ replay intro</button>
+</Base>
+
+<style>
+  .replay {
+    position: fixed; right: 18px; bottom: 18px; z-index: 100;
+    padding: 9px 14px; border-radius: 999px; cursor: pointer;
+    background: var(--surface); color: var(--muted); border: 1px solid var(--line-2); font-size: 12px;
+  }
+  .replay:hover { color: var(--text); border-color: var(--muted); }
+</style>

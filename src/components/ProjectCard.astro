@@ -1,0 +1,49 @@
+---
+import FlowDiagram from './FlowDiagram.astro';
+interface Props { project: any; index: number; }
+const { project, index } = Astro.props;
+const d = project.data;
+---
+<a href={`/projects/${project.id}/`} class="card" style={`--c:${d.accent}`}>
+  <div class="top">
+    <span class="mono idx">{String(index + 1).padStart(2, '0')}</span>
+    <span class="mono industry">{d.industry}</span>
+  </div>
+  <h3>{d.title}</h3>
+  <p class="summary">{d.summary}</p>
+  <div class="metric">
+    <span class="value">{d.metrics[0].value}</span>
+    <span class="mlabel">{d.metrics[0].label}</span>
+  </div>
+  <FlowDiagram flow={d.flow} compact />
+  <div class="bottom">
+    <div class="tags">{d.stack.slice(0, 4).map((s: string) => <span class="tag">{s}</span>)}</div>
+    <span class="go" aria-hidden="true">→</span>
+  </div>
+</a>
+
+<style>
+  .card {
+    position: relative; display: flex; flex-direction: column; gap: 18px;
+    padding: 28px; border-radius: var(--radius);
+    background: var(--surface); border: 1px solid var(--line);
+    transition: border-color .2s ease, transform .2s ease;
+    overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg, var(--c), transparent);
+    opacity: .7;
+  }
+  .card:hover { border-color: var(--line-2); transform: translateY(-3px); }
+  .top { display: flex; justify-content: space-between; font-size: 12px; color: var(--faint); }
+  .industry { color: var(--muted); }
+  h3 { font-size: 24px; }
+  .summary { color: var(--muted); font-size: 15.5px; }
+  .metric { display: flex; align-items: baseline; gap: 10px; padding: 14px 0; border-top: 1px dashed var(--line-2); border-bottom: 1px dashed var(--line-2); }
+  .value { font-size: 34px; font-weight: 600; color: var(--c); letter-spacing: -0.03em; }
+  .mlabel { color: var(--muted); font-size: 14px; }
+  .bottom { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: auto; }
+  .go { font-size: 20px; color: var(--muted); transition: transform .2s ease, color .2s ease; }
+  .card:hover .go { transform: translateX(4px); color: var(--c); }
+</style>

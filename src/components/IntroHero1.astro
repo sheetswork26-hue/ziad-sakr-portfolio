@@ -1,0 +1,253 @@
+---
+// Full-screen animated intro: tools "execute" and flow into your photo like an n8n workflow.
+interface Props {
+  name: string;
+  photo: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+}
+const {
+  name,
+  photo,
+  title = 'AI Automation Engineer',
+  subtitle = 'Backend Developer',
+  description = 'I build AI agents, n8n automations and the backend systems behind them — reliable, monitored and built to scale.',
+} = Astro.props;
+
+const C = 280;      // svg center
+const R = 212;      // node orbit radius
+const PR = 130;     // where connections end (just outside the photo ring)
+const NW = 116, NH = 40;
+const nodes = [
+  { label: 'Webhook',  sub: 'trigger',  k: 'trigger', a: -90 },
+  { label: 'AI Agent', sub: 'LLM',      k: 'ai',      a: -45 },
+  { label: 'REST API', sub: 'Express',  k: 'logic',   a: 0 },
+  { label: 'Postgres', sub: 'database', k: 'data',    a: 45 },
+  { label: 'Node.js',  sub: 'backend',  k: 'logic',   a: 90 },
+  { label: 'Redis',    sub: 'queue',    k: 'data',    a: 135 },
+  { label: 'Gmail',    sub: 'send',     k: 'action',  a: 180 },
+  { label: 'Slack',    sub: 'notify',   k: 'action',  a: 225 },
+].map((n, i) => {
+  const rad = (n.a * Math.PI) / 180;
+  const x = C + R * Math.cos(rad), y = C + R * Math.sin(rad);
+  const ex = C + PR * Math.cos(rad), ey = C + PR * Math.sin(rad);
+  // slight curve: control point rotated a bit around the center
+  const cr = ((n.a + 14) * Math.PI) / 180, cm = (R + PR) / 2;
+  const cx = C + cm * Math.cos(cr), cy = C + cm * Math.sin(cr);
+  return { ...n, i, x, y, d: `M${x.toFixed(1)},${y.toFixed(1)} Q${cx.toFixed(1)},${cy.toFixed(1)} ${ex.toFixed(1)},${ey.toFixed(1)}` };
+});
+
+const log = [
+  { t: '$ workflow.execute("portfolio")', c: 'cmd' },
+  { t: '→ trigger: visitor_arrived', c: '' },
+  { t: '→ 8 nodes connected', c: '' },
+  { t: '✓ execution succeeded · 1.2s', c: 'ok' },
+];
+---
+<section class="intro" data-intro>
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="glow" aria-hidden="true"></div>
+
+  <div class="intro-inner">
+    <div class="copy">
+      <ol class="log mono" aria-hidden="true">
+        {log.map((l, i) => <li class={l.c} style={`--d:${0.15 + i * 0.32}s`}>{l.t}</li>)}
+      </ol>
+
+      <p class="hello" style="--d:1.9s">Hi, I'm <strong>{name}</strong></p>
+
+      <h1 aria-label={`${title} — ${subtitle}`}>
+        <span class="line1" aria-hidden="true"><span class="typed" data-type={title}></span><span class="caret"></span></span>
+        <span class="line2" aria-hidden="true"><span class="sep">//</span> {subtitle}</span>
+      </h1>
+
+      <p class="desc" style="--d:3.6s">{description}</p>
+
+      <div class="ctas" style="--d:3.85s">
+        <a href="#work" class="btn btn-primary">See my work <span class="arrow">→</span></a>
+        <a href="#contact" class="btn">Hire me</a>
+      </div>
+
+      <ul class="chips mono" style="--d:4.1s">
+        <li>n8n</li><li>Node.js</li><li>Python</li><li>LangChain</li><li>PostgreSQL</li><li>Docker</li>
+      </ul>
+    </div>
+
+    <div class="hub">
+      <svg viewBox="0 0 560 560" fill="none" aria-hidden="true">
+        <circle cx={C} cy={C} r={R} class="orbit" />
+        <circle cx={C} cy={C} r={PR + 26} class="orbit inner" />
+        {nodes.map((n) => (
+          <g class={`k-${n.k}`}>
+            <path d={n.d} pathLength="1" class="wire" style={`--d:${0.5 + n.i * 0.12}s`} />
+            <path d={n.d} pathLength="1" class="pulse" style={`--d:${2.2 + n.i * 0.27}s`} />
+          </g>
+        ))}
+        {nodes.map((n) => (
+          <g class={`node k-${n.k}`} style={`--d:${0.35 + n.i * 0.12}s`}>
+            <g transform={`translate(${(n.x - NW / 2).toFixed(1)},${(n.y - NH / 2).toFixed(1)})`}>
+              <rect width={NW} height={NH} rx="10" class="box" />
+              <rect x="9" y="11" width="18" height="18" rx="5" class="chip" />
+              <text x="35" y="19" class="t1">{n.label}</text>
+              <text x="35" y="31" class="t2">{n.sub}</text>
+            </g>
+          </g>
+        ))}
+      </svg>
+
+      <div class="avatar">
+        <div class="ring" aria-hidden="true"></div>
+        <img src={photo} alt={name} width="480" height="480" fetchpriority="high" />
+        <span class="badge mono"><i></i> online</span>
+      </div>
+    </div>
+  </div>
+
+  <a href="#work" class="scroll mono" aria-label="Scroll to work">
+    <span>scroll</span><i></i>
+  </a>
+</section>
+
+<script>
+  function run(root: HTMLElement) {
+    const typed = root.querySelector<HTMLElement>('.typed')!;
+    const text = typed.dataset.type ?? '';
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    root.classList.remove('play', 'typed-done');
+    typed.textContent = '';
+    void root.offsetWidth; // restart CSS animations
+    root.classList.add('play');
+    if (reduce) { typed.textContent = text; root.classList.add('typed-done'); return; }
+    let i = 0;
+    const start = 2150;
+    const tick = () => {
+      typed.textContent = text.slice(0, ++i);
+      if (i < text.length) setTimeout(tick, 42 + Math.random() * 40);
+      else root.classList.add('typed-done');
+    };
+    setTimeout(tick, start);
+  }
+  document.querySelectorAll<HTMLElement>('[data-intro]').forEach((root) => {
+    run(root);
+    (window as any).replayIntro = () => run(root);
+  });
+</script>
+
+<style>
+  .intro {
+    position: relative; min-height: 100svh; display: flex; align-items: center;
+    overflow: hidden; padding: 96px 0 88px; isolation: isolate;
+  }
+  .bg-grid {
+    position: absolute; inset: 0; z-index: -2;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 70% 60% at 65% 50%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 65% 50%, #000 20%, transparent 75%);
+    opacity: 0;
+  }
+  .glow {
+    position: absolute; z-index: -1; width: 720px; height: 720px; right: -120px; top: 50%; translate: 0 -50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 16%, transparent) 0%, color-mix(in srgb, var(--k-ai) 8%, transparent) 40%, transparent 70%);
+    opacity: 0;
+  }
+  .intro-inner {
+    width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px; align-items: center;
+  }
+
+  /* ---------- copy ---------- */
+  .log { list-style: none; padding: 0; margin: 0 0 28px; font-size: 12.5px; color: var(--faint); display: grid; gap: 4px; }
+  .log li { opacity: 0; }
+  .log .cmd { color: var(--muted); }
+  .log .ok { color: var(--k-action); }
+  .hello { font-size: 19px; color: var(--muted); opacity: 0; }
+  .hello strong { color: var(--text); font-weight: 600; }
+  h1 { margin: 10px 0 22px; letter-spacing: -0.035em; }
+  .line1 { display: block; font-size: clamp(40px, 5.6vw, 72px); min-height: 1.1em; }
+  .typed { background: linear-gradient(90deg, var(--text) 40%, var(--accent)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .caret { display: inline-block; width: .08em; height: .9em; margin-left: .06em; background: var(--accent); vertical-align: -0.08em; opacity: 0; }
+  .line2 { display: block; font-size: clamp(24px, 3vw, 38px); color: var(--muted); font-weight: 500; margin-top: 10px; opacity: 0; }
+  .sep { font-family: var(--mono); color: var(--accent); font-size: .7em; margin-right: 4px; }
+  .desc { color: var(--muted); font-size: 18px; max-width: 46ch; opacity: 0; }
+  .ctas { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; opacity: 0; }
+  .chips { list-style: none; padding: 0; margin: 34px 0 0; display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--faint); opacity: 0; }
+  .chips li { padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-2); }
+
+  /* ---------- hub ---------- */
+  .hub { position: relative; width: 100%; max-width: 560px; aspect-ratio: 1; justify-self: center; }
+  .hub svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .orbit { stroke: var(--line); stroke-dasharray: 2 7; opacity: 0; }
+  .orbit.inner { stroke: var(--line-2); stroke-dasharray: none; }
+  .wire { stroke: var(--line-2); stroke-width: 1.5; stroke-dasharray: 1; stroke-dashoffset: 1; }
+  .pulse { stroke: var(--k); stroke-width: 2.6; stroke-linecap: round; stroke-dasharray: 0.09 1.2; stroke-dashoffset: 0.09; opacity: 0; filter: drop-shadow(0 0 5px var(--k)); }
+  .node { opacity: 0; transform-box: fill-box; transform-origin: center; }
+  .box { fill: var(--surface); stroke: var(--line-2); }
+  .chip { fill: color-mix(in srgb, var(--k) 22%, transparent); stroke: var(--k); stroke-width: 1.2; }
+  .t1 { fill: var(--text); font: 600 12.5px var(--font); }
+  .t2 { fill: var(--faint); font: 400 9.5px var(--mono); }
+
+  .avatar { position: absolute; left: 50%; top: 50%; width: 42.8%; aspect-ratio: 1; translate: -50% -50%; opacity: 0; }
+  .avatar img { position: relative; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; border-radius: 50%; border: 3px solid var(--bg); box-shadow: 0 30px 60px -20px rgba(0,0,0,.8); }
+  .ring { position: absolute; inset: -9px; border-radius: 50%; background: conic-gradient(from 0deg, var(--accent), var(--k-ai), var(--k-action), var(--k-data), var(--accent)); animation: spin 6s linear infinite; }
+  .ring::after { content: ''; position: absolute; inset: 3px; border-radius: 50%; background: var(--bg); }
+  .badge {
+    position: absolute; right: -2%; bottom: 6%; z-index: 2;
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 11px; border-radius: 999px; font-size: 11.5px;
+    background: var(--surface); border: 1px solid var(--line-2); color: var(--k-action);
+  }
+  .badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--k-action); box-shadow: 0 0 8px var(--k-action); animation: blink 1.6s infinite; }
+
+  .scroll { position: absolute; left: 50%; bottom: 26px; translate: -50% 0; display: grid; justify-items: center; gap: 8px; font-size: 11px; color: var(--faint); letter-spacing: .1em; opacity: 0; }
+  .scroll i { width: 1px; height: 34px; background: linear-gradient(var(--faint), transparent); animation: drip 1.8s ease-in-out infinite; }
+
+  /* ---------- play sequence ---------- */
+  .play .bg-grid { animation: fade .9s ease forwards; animation-delay: 0s; }
+  .play .bg-grid { --o: .45; }
+  .play .glow { animation: fade 1.6s ease forwards .6s; }
+  .play .orbit { animation: fade 1s ease forwards .3s; }
+  .play .log li { animation: up .35s ease forwards var(--d); }
+  .play .node { animation: pop .45s cubic-bezier(.2,.9,.3,1.3) forwards var(--d); }
+  .play .wire { animation: draw .7s ease forwards var(--d); }
+  .play .pulse { animation: travel 2.4s ease-in infinite var(--d); }
+  .play .avatar { animation: avatarIn .8s cubic-bezier(.2,.9,.3,1.15) forwards 1.45s; }
+  .play .hello { animation: up .5s ease forwards var(--d); }
+  .play .caret { animation: blink .9s step-end infinite 2.1s; }
+  .play .line2 { animation: up .5s ease forwards 3.25s; }
+  .play .desc, .play .ctas, .play .chips { animation: up .55s ease forwards var(--d); }
+  .play .scroll { animation: fade .6s ease forwards 4.4s; }
+  .typed-done .caret { animation: blink .9s step-end 3, gone .01s linear forwards 2.7s; }
+  @keyframes gone { to { opacity: 0; } }
+
+  @keyframes fade { to { opacity: var(--o, 1); } }
+  @keyframes up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes travel { 0% { opacity: 1; stroke-dashoffset: 0.09; } 85% { opacity: 1; } 100% { opacity: 0; stroke-dashoffset: -1; } }
+  @keyframes avatarIn { from { opacity: 0; scale: .7; } to { opacity: 1; scale: 1; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes blink { 50% { opacity: 0; } 0%, 100% { opacity: 1; } }
+  @keyframes drip { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 920px) {
+    .intro { padding: 84px 0 96px; align-items: flex-start; }
+    .intro-inner { grid-template-columns: 1fr; gap: 8px; }
+    .hub { order: -1; max-width: 420px; margin-top: -10px; }
+    .copy { text-align: center; }
+    .log { justify-items: center; }
+    .desc { margin-inline: auto; }
+    .ctas, .chips { justify-content: center; }
+    .glow { right: 50%; translate: 50% -50%; top: 30%; width: 520px; height: 520px; }
+    .scroll { display: none; }
+  }
+  @media (max-width: 640px) { .intro-inner { padding: 0 16px; } .log { font-size: 11.5px; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    .intro *, .intro { animation: none !important; }
+    .bg-grid { opacity: .45; } .log li, .node, .avatar, .hello, .line2, .desc, .ctas, .chips, .orbit, .glow, .scroll { opacity: 1 !important; }
+    .wire { stroke-dashoffset: 0; }
+  }
+</style>

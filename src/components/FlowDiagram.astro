@@ -1,0 +1,42 @@
+---
+interface Props { flow: { label: string; kind: string }[]; compact?: boolean; }
+const { flow, compact = false } = Astro.props;
+const kindLabel: Record<string, string> = { trigger: 'Trigger', ai: 'AI', logic: 'Logic', action: 'Action', data: 'Data' };
+---
+<ol class:list={['flow', { compact }]}>
+  {flow.map((step, i) => (
+    <li class={`step k-${step.kind}`}>
+      <span class="kind mono">{String(i + 1).padStart(2, '0')} · {kindLabel[step.kind]}</span>
+      <span class="label">{step.label}</span>
+    </li>
+  ))}
+</ol>
+
+<style>
+  .flow { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0; align-items: stretch; row-gap: 14px; }
+  .step {
+    position: relative; display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 14px; min-width: 128px;
+    background: var(--surface); border: 1px solid var(--line-2);
+    border-left: 3px solid var(--k); border-radius: 10px;
+    margin-right: 34px;
+  }
+  .step:not(:last-child)::after {
+    content: ''; position: absolute; right: -34px; top: 50%;
+    width: 34px; height: 2px;
+    background: linear-gradient(90deg, var(--line-2), var(--k));
+  }
+  .step:last-child { margin-right: 0; }
+  .kind { font-size: 10.5px; color: var(--k); letter-spacing: .05em; text-transform: uppercase; }
+  .label { font-size: 14.5px; font-weight: 600; }
+
+  .compact .step { padding: 0; min-width: 0; width: 12px; height: 12px; border: none; background: var(--k); border-radius: 4px; margin-right: 18px; }
+  .compact .step::after { right: -18px; width: 18px; height: 1.5px; background: var(--line-2); }
+  .compact .kind, .compact .label { display: none; }
+
+  @media (max-width: 640px) {
+    .flow:not(.compact) { flex-direction: column; }
+    .flow:not(.compact) .step { margin-right: 0; margin-bottom: 18px; }
+    .flow:not(.compact) .step:not(:last-child)::after { right: auto; left: 24px; top: 100%; width: 2px; height: 18px; background: var(--line-2); }
+  }
+</style>

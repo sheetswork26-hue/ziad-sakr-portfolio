@@ -1,0 +1,225 @@
+---
+// Opening scene (~5.5s): the same day "Before automation" (chaos) → a sweep → "After automation" (calm).
+// Then it fades out and dispatches `scene:done` so the hero starts.
+// `once`: play only once per browser session (use in production).
+interface Props { once?: boolean; }
+const { once = false } = Astro.props;
+
+const tasks = [
+  { name: 'Copy new lead into CRM',       before: 'manual · 6 min',  after: 'auto · 2s' },
+  { name: 'Reply to customer on WhatsApp', before: 'manual · 15 min', after: 'AI agent · 8s' },
+  { name: 'Update sales spreadsheet',     before: 'manual · 20 min', after: 'synced live' },
+  { name: 'Create & send invoice',        before: 'manual · 12 min', after: 'auto · Xero' },
+  { name: 'Weekly report to manager',     before: 'manual · 2 h',    after: 'scheduled · Mon 9:00' },
+];
+---
+<div class="scene" data-scene data-once={once ? '' : undefined} role="img" aria-label="Before automation your team does everything by hand; after automation the same work runs by itself.">
+  <div class="sc-grid" aria-hidden="true"></div>
+
+  <div class="sc-stage" aria-hidden="true">
+    <!-- BEFORE -->
+    <div class="layer before">
+      <div class="head">
+        <span class="tag mono">Before automation</span>
+        <p class="cap">Your team, every single day.</p>
+      </div>
+      <div class="win">
+        <div class="bar mono"><i></i><i></i><i></i><span>today.tasks</span></div>
+        <div class="kpis">
+          <div><span class="mono lbl">Inbox</span><b><span data-c="inbox">12</span> unread</b></div>
+          <div><span class="mono lbl">Time on manual work</span><b><span data-c="hours">31</span>h / week</b></div>
+          <div class="warn"><span class="mono lbl">Status</span><b>⚠ 4 overdue</b></div>
+        </div>
+        <ul class="rows">
+          {tasks.map((t, i) => (
+            <li style={`--i:${i}`}><span class="box"></span><span class="nm">{t.name}</span><span class="pill mono">{t.before}</span></li>
+          ))}
+        </ul>
+      </div>
+      <div class="toast t1 mono">📩 “Where is my invoice??”</div>
+      <div class="toast t2 mono">⏰ Reminder: update the CRM</div>
+      <div class="toast t3 mono">💬 32 new WhatsApp messages</div>
+    </div>
+
+    <!-- AFTER (revealed by the sweep) -->
+    <div class="layer after">
+      <div class="head">
+        <span class="tag mono">After automation</span>
+        <p class="cap">Same work. Zero effort.</p>
+      </div>
+      <div class="win">
+        <div class="bar mono"><i></i><i></i><i></i><span>today.tasks</span><em>● 5 workflows running</em></div>
+        <div class="kpis">
+          <div><span class="mono lbl">Inbox</span><b>0 unread</b></div>
+          <div><span class="mono lbl">Time on manual work</span><b>2h / week</b></div>
+          <div class="good"><span class="mono lbl">Status</span><b>✓ all on time</b></div>
+        </div>
+        <ul class="rows">
+          {tasks.map((t, i) => (
+            <li style={`--i:${i}`}><span class="box"></span><span class="nm">{t.name}</span><span class="pill mono">{t.after}</span></li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
+    <span class="sweep"></span>
+  </div>
+
+  <p class="punch" aria-hidden="true">I build the <em>after</em>.</p>
+
+  <button class="skip mono" type="button">Skip intro →</button>
+</div>
+
+<script>
+  function countTo(el: Element, from: number, to: number, ms: number) {
+    const t0 = performance.now();
+    const step = (t: number) => {
+      const p = Math.min(1, (t - t0) / ms);
+      el.textContent = String(Math.round(from + (to - from) * p));
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  document.querySelectorAll<HTMLElement>('[data-scene]').forEach((scene) => {
+    const KEY = 'zs-scene-seen';
+    const done = () => window.dispatchEvent(new CustomEvent('scene:done'));
+    let timers: number[] = [];
+    const later = (fn: () => void, ms: number) => timers.push(window.setTimeout(fn, ms));
+
+    const finish = () => {
+      timers.forEach(clearTimeout); timers = [];
+      if (scene.classList.contains('gone')) return;
+      scene.classList.add('out');
+      done();
+      setTimeout(() => scene.classList.add('gone'), 700);
+      if (scene.hasAttribute('data-once')) { try { sessionStorage.setItem(KEY, '1'); } catch {} }
+    };
+
+    const play = () => {
+      timers.forEach(clearTimeout); timers = [];
+      scene.classList.remove('out', 'gone', 'play');
+      void scene.offsetWidth;
+      scene.classList.add('play');
+      document.documentElement.style.overflow = 'hidden';
+      const inbox = scene.querySelector('[data-c="inbox"]')!, hours = scene.querySelector('[data-c="hours"]')!;
+      inbox.textContent = '12'; hours.textContent = '31';
+      later(() => { countTo(inbox, 12, 247, 1900); countTo(hours, 31, 38, 1900); }, 350);
+      later(() => { document.documentElement.style.overflow = ''; finish(); }, 5600);
+    };
+
+    scene.querySelector('.skip')!.addEventListener('click', () => { document.documentElement.style.overflow = ''; finish(); });
+    addEventListener('keydown', (e) => { if (e.key === 'Escape' && !scene.classList.contains('gone')) { document.documentElement.style.overflow = ''; finish(); } });
+
+    let seen = false;
+    const forced = new URLSearchParams(location.search).has('intro'); // ?intro → always play
+    try { seen = !forced && scene.hasAttribute('data-once') && sessionStorage.getItem(KEY) === '1'; } catch {}
+    if (seen || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      scene.classList.add('gone');
+      setTimeout(done, 0);
+    } else {
+      play();
+    }
+    (window as any).replayScene = play;
+  });
+</script>
+
+<style>
+  .scene {
+    --bad: #f87171; --good: var(--k-action);
+    --ease: cubic-bezier(.7, 0, .2, 1); --ease-out: cubic-bezier(.16, 1, .3, 1);
+    position: fixed; inset: 0; z-index: 200; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px;
+    padding: 24px 16px; overflow: hidden;
+  }
+  .scene.out { animation: sceneOut .7s var(--ease) forwards; pointer-events: none; }
+  .scene.gone { display: none; }
+  .sc-grid { position: absolute; inset: 0; background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 44px 44px; opacity: .3; mask-image: radial-gradient(ellipse at center, #000 20%, transparent 70%); -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 70%); }
+
+  .sc-stage { position: relative; width: min(680px, 100%); }
+  .layer { position: relative; }
+  .layer.after { position: absolute; inset: -14px -14px; padding: 14px; background: var(--bg); clip-path: inset(0 100% 0 0); z-index: 2; }
+
+  .head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tag { font-size: 12.5px; letter-spacing: .14em; text-transform: uppercase; padding: 6px 12px; border-radius: 999px; }
+  .before .tag { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent); }
+  .after .tag { color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); border: 1px solid color-mix(in srgb, var(--good) 35%, transparent); }
+  .cap { color: var(--muted); font-size: 15px; }
+
+  .win { border-radius: 16px; border: 1px solid var(--line-2); background: var(--bg-2); overflow: hidden; box-shadow: 0 40px 80px -30px rgba(0,0,0,.8); }
+  .bar { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
+  .bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line-2); }
+  .bar span { margin-left: 8px; }
+  .bar em { margin-left: auto; font-style: normal; color: var(--good); }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line); }
+  .kpis div { padding: 14px 16px; display: grid; gap: 2px; }
+  .kpis div + div { border-left: 1px solid var(--line); }
+  .lbl { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .06em; }
+  .kpis b { font-size: 19px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .before .kpis b { color: var(--text); }
+  .before .warn b { color: var(--bad); }
+  .after .good b { color: var(--good); }
+
+  .rows { list-style: none; margin: 0; padding: 6px 0; }
+  .rows li { display: flex; align-items: center; gap: 12px; padding: 10px 16px; font-size: 15px; }
+  .rows li + li { border-top: 1px dashed var(--line); }
+  .box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line-2); flex-shrink: 0; }
+  .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { font-size: 11px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+  .before .pill { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+  .before .box { border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+  .after .pill { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent); }
+  .after .nm { color: var(--muted); }
+  .after .box { position: relative; }
+  .after .box::after { content: ''; position: absolute; inset: -1.5px; border-radius: 5px; background: var(--good) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5 7 11l5-6' fill='none' stroke='%230b0d10' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / 13px no-repeat; transform: scale(0); }
+
+  .toast { position: absolute; z-index: 3; padding: 9px 13px; border-radius: 10px; font-size: 12px; white-space: nowrap; background: var(--surface-2); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--line-2)); box-shadow: 0 14px 30px -12px rgba(0,0,0,.8); opacity: 0; }
+  .t1 { right: -6%; top: 22%; }
+  .t2 { left: -8%; top: 52%; }
+  .t3 { right: -3%; bottom: -4%; }
+
+  .sweep { position: absolute; top: -12px; bottom: -12px; left: 0; width: 2px; background: var(--accent); box-shadow: 0 0 18px 3px color-mix(in srgb, var(--accent) 60%, transparent); opacity: 0; z-index: 4; border-radius: 2px; }
+
+  .punch { position: relative; font-size: clamp(26px, 3.6vw, 40px); font-weight: 500; letter-spacing: -0.03em; opacity: 0; }
+  .punch em { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; color: var(--accent); font-size: 1.1em; }
+
+  .skip { position: absolute; right: 20px; bottom: 20px; z-index: 5; background: none; border: 1px solid var(--line-2); color: var(--muted); font-size: 12px; padding: 8px 14px; border-radius: 999px; cursor: pointer; }
+  .skip:hover { color: var(--text); border-color: var(--muted); }
+
+  /* -------- timeline -------- */
+  .play .layer.before { animation: rise .45s var(--ease-out) both; }
+  .play .before .win { animation: jitter .18s linear 6 .9s; }
+  .play .before .rows li { animation: rise .35s var(--ease-out) both calc(.15s + var(--i) * .08s); }
+  .play .t1 { animation: toast .4s var(--ease-out) forwards .7s, toastOut .25s ease forwards 2.35s; }
+  .play .t2 { animation: toast .4s var(--ease-out) forwards 1.15s, toastOut .25s ease forwards 2.35s; }
+  .play .t3 { animation: toast .4s var(--ease-out) forwards 1.6s, toastOut .25s ease forwards 2.35s; }
+  .play .layer.after { animation: reveal .8s var(--ease) forwards 2.45s; }
+  .play .sweep { animation: sweep .8s var(--ease) forwards 2.45s; }
+  .play .after .box::after { animation: check .35s cubic-bezier(.3,1.6,.5,1) forwards calc(3.25s + var(--i) * .14s); }
+  .play .after .bar em { animation: blink 1.4s infinite 3.2s; }
+  .play .punch { animation: rise .6s var(--ease-out) forwards 4.15s; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes toast { from { opacity: 0; transform: translateY(8px) scale(.95); } to { opacity: 1; transform: none; } }
+  @keyframes toastOut { to { opacity: 0; transform: translateY(-6px) scale(.95); } }
+  @keyframes jitter { 25% { transform: translate(1px, -1px) rotate(.15deg); } 75% { transform: translate(-1px, 1px) rotate(-.15deg); } }
+  @keyframes reveal { to { clip-path: inset(0 0 0 0); } }
+  @keyframes sweep { 0% { opacity: 1; left: 0; } 90% { opacity: 1; } 100% { opacity: 0; left: 100%; } }
+  @keyframes check { to { transform: scale(1); } }
+  @keyframes blink { 50% { opacity: .4; } }
+  @keyframes sceneOut { to { opacity: 0; transform: scale(1.03); visibility: hidden; } }
+
+  @media (max-width: 640px) {
+    .scene { gap: 22px; justify-content: center; }
+    .head { margin-bottom: 10px; }
+    .cap { font-size: 13.5px; width: 100%; }
+    .kpis div { padding: 10px 10px; }
+    .kpis b { font-size: 15px; }
+    .lbl { font-size: 9px; }
+    .rows li { padding: 9px 12px; font-size: 13.5px; gap: 10px; }
+    .pill { font-size: 10px; padding: 2px 6px; }
+    .t1 { right: 0; top: 18%; } .t2 { left: 0; top: 56%; } .t3 { right: 0; bottom: -6%; }
+    .toast { font-size: 11px; padding: 7px 10px; }
+    .bar em { display: none; }
+  }
+</style>

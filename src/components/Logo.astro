@@ -1,0 +1,20 @@
+---
+// "Sakr" mark: a falcon (صقر) inside an n8n-style trigger node.
+interface Props { size?: number; }
+const { size = 30 } = Astro.props;
+---
+<svg class="logo" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
+  <line x1="56" y1="32" x2="62.5" y2="32" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" />
+  <path d="M32 11 H44 A9 9 0 0 1 53 20 V44 A9 9 0 0 1 44 53 H32 A21 21 0 0 1 32 11 Z" fill="var(--surface-2)" stroke="var(--accent)" stroke-width="3" />
+  <circle cx="53" cy="32" r="4" fill="var(--accent)" />
+  <g transform="translate(14.5,12.5) scale(0.6)">
+    <path d="M15 56 C13 38 15 21 27 13.5 C34 9 42 10.5 46.5 16.5 C51.5 17.5 55.5 22 55.5 28 C55.5 31.5 53.5 33.5 51 33.5 C51 30.5 49 28.8 46.6 29.2 C45.2 32.2 43.2 34.5 42 37.5 C43 44 45.5 50 48 56 Z" fill="#ffffff" />
+    <path d="M38.5 24.5 C37.5 30 35 35 30.5 40 C34.5 35.5 35.5 30.5 34.5 24.5 Z" fill="var(--surface-2)" />
+    <circle cx="38" cy="21" r="4.4" fill="var(--accent)" />
+  </g>
+  <path d="M14 21 L17.5 21 L15.5 25 L18.5 25 L13.5 31 L15 26.5 L12.5 26.5 Z" fill="var(--accent)" />
+</svg>
+
+<style>
+  .logo { display: block; flex-shrink: 0; overflow: visible; }
+</style>

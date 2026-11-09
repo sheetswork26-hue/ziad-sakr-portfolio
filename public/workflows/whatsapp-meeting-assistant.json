@@ -1,0 +1,388 @@
+{
+ "name": "whatsapp-meeting-assistant",
+ "nodes": [
+  {
+   "parameters": {},
+   "name": "WhatsApp Trigger",
+   "type": "n8n-nodes-base.whatsAppTrigger",
+   "typeVersion": 1,
+   "position": [
+    -528,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Send message",
+   "type": "n8n-nodes-base.whatsApp",
+   "typeVersion": 1.1,
+   "position": [
+    1664,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Switch",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3.4,
+   "position": [
+    -304,
+    96
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Download media",
+   "type": "n8n-nodes-base.whatsApp",
+   "typeVersion": 1.1,
+   "position": [
+    144,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Download media1",
+   "type": "n8n-nodes-base.whatsApp",
+   "typeVersion": 1.1,
+   "position": [
+    -80,
+    304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "HTTP Request",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.5,
+   "position": [
+    144,
+    304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "HTTP Request1",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.5,
+   "position": [
+    368,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Transcribe a recording",
+   "type": "@n8n/n8n-nodes-langchain.openAi",
+   "typeVersion": 2.3,
+   "position": [
+    592,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "AI Agent",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 3.1,
+   "position": [
+    1072,
+    112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "get Text Field1",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.5,
+   "position": [
+    592,
+    -80
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Analyze image",
+   "type": "@n8n/n8n-nodes-langchain.openAi",
+   "typeVersion": 2.3,
+   "position": [
+    368,
+    304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "get Text Field",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.5,
+   "position": [
+    592,
+    304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Simple Memory",
+   "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+   "typeVersion": 1.4,
+   "position": [
+    952,
+    344
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Google search in SerpApi",
+   "type": "n8n-nodes-serpapi.serpApiTool",
+   "typeVersion": 1,
+   "position": [
+    1080,
+    344
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Send a message in Gmail",
+   "type": "n8n-nodes-base.gmailTool",
+   "typeVersion": 2.2,
+   "position": [
+    1208,
+    344
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "append meetings like a calender",
+   "type": "n8n-nodes-base.googleSheetsTool",
+   "typeVersion": 4.7,
+   "position": [
+    1336,
+    344
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "OpenAI Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+   "typeVersion": 1.3,
+   "position": [
+    824,
+    344
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Create an event in Google Calendar",
+   "type": "n8n-nodes-base.googleCalendarTool",
+   "typeVersion": 1.3,
+   "position": [
+    1464,
+    344
+   ]
+  }
+ ],
+ "connections": {
+  "WhatsApp Trigger": {
+   "main": [
+    [
+     {
+      "node": "Switch",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Switch": {
+   "main": [
+    [
+     {
+      "node": "get Text Field1",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Download media",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Download media1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Download media1": {
+   "main": [
+    [
+     {
+      "node": "HTTP Request",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Download media": {
+   "main": [
+    [
+     {
+      "node": "HTTP Request1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "HTTP Request": {
+   "main": [
+    [
+     {
+      "node": "Analyze image",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "HTTP Request1": {
+   "main": [
+    [
+     {
+      "node": "Transcribe a recording",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Transcribe a recording": {
+   "main": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "get Text Field1": {
+   "main": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Analyze image": {
+   "main": [
+    [
+     {
+      "node": "get Text Field",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "get Text Field": {
+   "main": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Simple Memory": {
+   "ai_memory": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_memory",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "AI Agent": {
+   "main": [
+    [
+     {
+      "node": "Send message",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Google search in SerpApi": {
+   "ai_tool": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_tool",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Send a message in Gmail": {
+   "ai_tool": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_tool",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "append meetings like a calender": {
+   "ai_tool": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_tool",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "OpenAI Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Create an event in Google Calendar": {
+   "ai_tool": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_tool",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ }
+}

@@ -1,0 +1,364 @@
+{
+ "name": "cake-order-management",
+ "nodes": [
+  {
+   "parameters": {},
+   "name": "add order",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.2,
+   "position": [
+    576,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Normalize Payload",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    800,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Save Order + Add-ons",
+   "type": "n8n-nodes-base.postgres",
+   "typeVersion": 2.6,
+   "position": [
+    1024,
+    -496
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Prepare Images",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1712,
+    -416
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Upload Image to R2",
+   "type": "n8n-nodes-base.s3",
+   "typeVersion": 1,
+   "position": [
+    1920,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Save Image Metadata",
+   "type": "n8n-nodes-base.postgres",
+   "typeVersion": 2.6,
+   "position": [
+    2144,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Verify Uploaded Images + Count",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2368,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Respond Success1",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.1,
+   "position": [
+    3040,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Merge Saved Order + Original Images",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3.2,
+   "position": [
+    1248,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Append in all ",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.7,
+   "position": [
+    2144,
+    -624
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Append monthly ",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.7,
+   "position": [
+    1920,
+    -624
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Images Found?1",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.2,
+   "position": [
+    1472,
+    -336
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "No Images Result1",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2368,
+    -240
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Check Google Sheets Results1",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2368,
+    -624
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Merge Sheets + Images Status1",
+   "type": "n8n-nodes-base.merge",
+   "typeVersion": 3.2,
+   "position": [
+    2592,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Build Final Response1",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    2816,
+    -432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "HTTP Request",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.5,
+   "position": [
+    816,
+    -656
+   ]
+  }
+ ],
+ "connections": {
+  "add order": {
+   "main": [
+    [
+     {
+      "node": "Normalize Payload",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "HTTP Request",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Normalize Payload": {
+   "main": [
+    [
+     {
+      "node": "Save Order + Add-ons",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Merge Saved Order + Original Images",
+      "type": "main",
+      "index": 1
+     }
+    ]
+   ]
+  },
+  "Save Order + Add-ons": {
+   "main": [
+    [
+     {
+      "node": "Merge Saved Order + Original Images",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Prepare Images": {
+   "main": [
+    [
+     {
+      "node": "Upload Image to R2",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Upload Image to R2": {
+   "main": [
+    [
+     {
+      "node": "Save Image Metadata",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Save Image Metadata": {
+   "main": [
+    [
+     {
+      "node": "Verify Uploaded Images + Count",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Verify Uploaded Images + Count": {
+   "main": [
+    [
+     {
+      "node": "Merge Sheets + Images Status1",
+      "type": "main",
+      "index": 1
+     }
+    ]
+   ]
+  },
+  "Merge Saved Order + Original Images": {
+   "main": [
+    [
+     {
+      "node": "Append monthly ",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "Images Found?1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Append monthly ": {
+   "main": [
+    [
+     {
+      "node": "Append in all ",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Images Found?1": {
+   "main": [
+    [
+     {
+      "node": "Prepare Images",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "No Images Result1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Append in all ": {
+   "main": [
+    [
+     {
+      "node": "Check Google Sheets Results1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "No Images Result1": {
+   "main": [
+    [
+     {
+      "node": "Merge Sheets + Images Status1",
+      "type": "main",
+      "index": 1
+     }
+    ]
+   ]
+  },
+  "Check Google Sheets Results1": {
+   "main": [
+    [
+     {
+      "node": "Merge Sheets + Images Status1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Merge Sheets + Images Status1": {
+   "main": [
+    [
+     {
+      "node": "Build Final Response1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Build Final Response1": {
+   "main": [
+    [
+     {
+      "node": "Respond Success1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ }
+}

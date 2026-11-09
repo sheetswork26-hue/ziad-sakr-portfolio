@@ -1,0 +1,470 @@
+{
+ "name": "facebook-ai-responder",
+ "nodes": [
+  {
+   "parameters": {},
+   "name": "Webhook",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.2,
+   "position": [
+    -736,
+    -304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "IF - Verify Meta",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    -512,
+    -400
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Respond to Webhook",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    -288,
+    -496
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Respond to Webhook1",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    -288,
+    -304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Acknowledge Meta Event",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    960,
+    -416
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "AI Agent",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 3.1,
+   "position": [
+    384,
+    -528
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Groq Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+   "typeVersion": 1,
+   "position": [
+    464,
+    -304
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "HTTP Request",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.5,
+   "position": [
+    736,
+    -416
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Extract Messenger Data",
+   "type": "n8n-nodes-base.set",
+   "typeVersion": 3.5,
+   "position": [
+    160,
+    -416
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Switch",
+   "type": "n8n-nodes-base.switch",
+   "typeVersion": 3.4,
+   "position": [
+    -64,
+    -208
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Extract New Comments",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    960,
+    144
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Reply to Facebook Comment",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.2,
+   "position": [
+    1184,
+    48
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "No Operation, do nothing1",
+   "type": "n8n-nodes-base.noOp",
+   "typeVersion": 1,
+   "position": [
+    960,
+    -48
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Execute a SQL query2",
+   "type": "n8n-nodes-base.postgres",
+   "typeVersion": 2.7,
+   "position": [
+    448,
+    -128
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "not the page1",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    160,
+    -48
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "duplicated comment1",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    736,
+    -128
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Execute a SQL query3",
+   "type": "n8n-nodes-base.postgres",
+   "typeVersion": 2.7,
+   "position": [
+    1408,
+    48
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Error Trigger",
+   "type": "n8n-nodes-base.errorTrigger",
+   "typeVersion": 1,
+   "position": [
+    -736,
+    -752
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Send text",
+   "type": "n8n-nodes-evolution-api-english.evolutionApi",
+   "typeVersion": 1,
+   "position": [
+    -512,
+    -752
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "message reply",
+   "type": "n8n-nodes-base.httpRequest",
+   "typeVersion": 4.5,
+   "position": [
+    1184,
+    240
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Acknowledge Meta Event1",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    1632,
+    48
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Crypto",
+   "type": "n8n-nodes-base.crypto",
+   "typeVersion": 2,
+   "position": [
+    -512,
+    -112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "If",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    -288,
+    -112
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "Reject Invalid Meta Signature",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    -64,
+    -16
+   ]
+  }
+ ],
+ "connections": {
+  "Webhook": {
+   "main": [
+    [
+     {
+      "node": "IF - Verify Meta",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Crypto",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "IF - Verify Meta": {
+   "main": [
+    [
+     {
+      "node": "Respond to Webhook",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Respond to Webhook1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "AI Agent": {
+   "main": [
+    [
+     {
+      "node": "HTTP Request",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Groq Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "HTTP Request": {
+   "main": [
+    [
+     {
+      "node": "Acknowledge Meta Event",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Extract Messenger Data": {
+   "main": [
+    [
+     {
+      "node": "AI Agent",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Switch": {
+   "main": [
+    [
+     {
+      "node": "Extract Messenger Data",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "not the page1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Extract New Comments": {
+   "main": [
+    [
+     {
+      "node": "Reply to Facebook Comment",
+      "type": "main",
+      "index": 0
+     },
+     {
+      "node": "message reply",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Reply to Facebook Comment": {
+   "main": [
+    [
+     {
+      "node": "Execute a SQL query3",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Execute a SQL query2": {
+   "main": [
+    [
+     {
+      "node": "duplicated comment1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "not the page1": {
+   "main": [
+    [
+     {
+      "node": "Execute a SQL query2",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "No Operation, do nothing1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "duplicated comment1": {
+   "main": [
+    [
+     {
+      "node": "No Operation, do nothing1",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Extract New Comments",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Error Trigger": {
+   "main": [
+    [
+     {
+      "node": "Send text",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Execute a SQL query3": {
+   "main": [
+    [
+     {
+      "node": "Acknowledge Meta Event1",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "Crypto": {
+   "main": [
+    [
+     {
+      "node": "If",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "If": {
+   "main": [
+    [
+     {
+      "node": "Switch",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "Reject Invalid Meta Signature",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ }
+}

@@ -1,0 +1,193 @@
+---
+import fs from 'node:fs';
+import path from 'node:path';
+import { getCollection, render } from 'astro:content';
+import Base from '../../layouts/Base.astro';
+import FlowDiagram from '../../components/FlowDiagram.astro';
+
+export async function getStaticPaths() {
+  const all = (await getCollection('projects')).sort((a, b) => a.data.order - b.data.order);
+  return all.map((project, i) => ({
+    params: { slug: project.id },
+    props: { project, next: all[(i + 1) % all.length] },
+  }));
+}
+
+const { project, next } = Astro.props;
+const d = project.data;
+const { Content } = await render(project);
+
+// Read the sanitized workflow export at build time so it can be embedded interactively.
+let workflowJson = '';
+if (d.workflow) {
+  const file = path.join(process.cwd(), 'public', d.workflow);
+  if (fs.existsSync(file)) workflowJson = JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8')));
+}
+---
+<Base title={d.title} description={d.summary}>
+  <Fragment slot="head">
+    {workflowJson && (
+      <>
+        <script is:inline src="https://cdn.jsdelivr.net/npm/@webcomponents/webcomponentsjs@2.8.0/webcomponents-loader.js"></script>
+        <script is:inline type="module" src="https://cdn.jsdelivr.net/npm/@n8n_io/n8n-demo-component@1.0.20/n8n-demo.bundled.js"></script>
+      </>
+    )}
+  </Fragment>
+
+  <article style={`--c:${d.accent}`}>
+    <header class="head">
+      <div class="grid-bg head-grid" aria-hidden="true"></div>
+      <div class="wrap head-inner">
+        <a href="/#work" class="back mono">← All projects</a>
+        <span class="eyebrow">Case study · {d.industry}</span>
+        <h1>{d.title}</h1>
+        <p class="lede">{d.summary}</p>
+        <div class="tags">{d.stack.map((s) => <span class="tag">{s}</span>)}</div>
+
+        <dl class="metrics">
+          {d.metrics.map((m) => (<div><dt>{m.value}</dt><dd>{m.label}</dd></div>))}
+        </dl>
+      </div>
+    </header>
+
+    <section class="flow-sec">
+      <div class="wrap">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="eyebrow">How it works</span>
+            <div class="legend mono">
+              <span class="k-trigger">trigger</span><span class="k-ai">ai</span><span class="k-logic">logic</span><span class="k-data">data</span><span class="k-action">action</span>
+            </div>
+          </div>
+          <FlowDiagram flow={d.flow} />
+        </div>
+
+        {workflowJson && (
+          <div class="panel workflow">
+            <div class="panel-head">
+              <span class="eyebrow">The actual workflow</span>
+              <a class="mono dl" href={d.workflow} download>↓ Download JSON</a>
+            </div>
+            <div class="n8n-frame">
+              <n8n-demo workflow={workflowJson} frame="false" clicktointeract="true" collapseformobile="false"></n8n-demo>
+            </div>
+            <p class="mono hint">Click to interact · zoom, pan and inspect each node. Credentials removed.</p>
+          </div>
+        )}
+
+        {d.video && (
+          <div class="panel">
+            <div class="panel-head"><span class="eyebrow">Walkthrough</span></div>
+            <div class="video"><iframe src={d.video} title={`${d.title} walkthrough`} loading="lazy" allowfullscreen></iframe></div>
+          </div>
+        )}
+      </div>
+    </section>
+
+    <section class="body">
+      <div class="wrap body-inner">
+        <div class="prose"><Content /></div>
+        <aside class="side">
+          <div class="side-card">
+            <h3 class="mono">Project</h3>
+            <dl>
+              <dt>Industry</dt><dd>{d.industry}</dd>
+              {d.duration && (<><dt>Timeline</dt><dd>{d.duration}</dd></>)}
+              <dt>Steps</dt><dd>{d.flow.length} stages</dd>
+            </dl>
+            {d.repo && <a class="gh mono" href={d.repo} target="_blank" rel="noopener">View source on GitHub ↗</a>}
+          </div>
+          <div class="side-card cta">
+            <h3>Need something similar?</h3>
+            <p>I can adapt this workflow to your stack in days, not months.</p>
+            <a href="/#contact" class="btn btn-primary">Let's talk <span class="arrow">→</span></a>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section class="next">
+      <div class="wrap">
+        <a href={`/projects/${next.id}/`} class="next-link" style={`--c:${next.data.accent}`}>
+          <span class="mono">Next case study →</span>
+          <strong>{next.data.title}</strong>
+        </a>
+      </div>
+    </section>
+  </article>
+</Base>
+
+<script>
+  // The n8n-demo component renders a fixed 300px canvas; make it taller on larger screens.
+  customElements.whenDefined('n8n-demo').then(async () => {
+    const el = document.querySelector('n8n-demo') as any;
+    if (!el) return;
+    await el.updateComplete;
+    const h = window.innerWidth < 640 ? 360 : 480;
+    const style = document.createElement('style');
+    style.textContent = `.embedded_workflow, .canvas-container, .overlay, iframe { height: ${h}px !important; }`;
+    el.shadowRoot?.appendChild(style);
+  });
+</script>
+
+<style>
+  .head { position: relative; padding: 64px 0 56px; border-bottom: 1px solid var(--line); overflow: hidden; }
+  .head-grid { position: absolute; inset: 0; }
+  .head-inner { position: relative; }
+  .back { display: block; width: fit-content; font-size: 13px; color: var(--muted); margin-bottom: 36px; }
+  .back:hover { color: var(--text); }
+  h1 { font-size: clamp(38px, 5.6vw, 68px); margin: 18px 0 18px; max-width: 18ch; letter-spacing: -0.035em; }
+  .lede { color: var(--muted); font-size: 19px; max-width: 60ch; margin-bottom: 24px; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 48px 0 0; }
+  .metrics div { padding: 22px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); border-top: 2px solid var(--c); }
+  .metrics dt { font-size: 38px; font-weight: 600; letter-spacing: -0.03em; color: var(--c); }
+  .metrics dd { margin: 2px 0 0; color: var(--muted); font-size: 14.5px; }
+
+  .flow-sec { padding: 56px 0 0; }
+  .panel { padding: 28px; border-radius: var(--radius); background: var(--bg-2); border: 1px solid var(--line); margin-bottom: 20px; }
+  .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
+  .legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--k); margin-right: 6px; }
+  .dl { font-size: 13px; color: var(--accent); }
+  .n8n-frame { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #f5f5f5; }
+  .n8n-frame :global(n8n-demo) { display: block; width: 100%; }
+  .hint { margin-top: 12px; font-size: 12px; color: var(--faint); }
+  .video { aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+  .video iframe { width: 100%; height: 100%; border: 0; }
+
+  .body { padding: 56px 0 96px; }
+  .body-inner { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 56px; align-items: start; }
+  @media (max-width: 920px) { .body-inner { grid-template-columns: 1fr; } }
+
+  .prose { max-width: 70ch; }
+  .prose :global(h2) { font-size: 30px; margin: 52px 0 16px; display: flex; align-items: center; gap: 12px; }
+  .prose :global(h2:first-child) { margin-top: 0; }
+  .prose :global(h2::before) { content: ''; width: 10px; height: 10px; border-radius: 3px; background: var(--c); flex-shrink: 0; }
+  .prose :global(h3) { font-size: 20px; margin: 32px 0 10px; }
+  .prose :global(p) { color: #c3cad6; margin: 0 0 16px; }
+  .prose :global(strong) { color: var(--text); }
+  .prose :global(ul) { color: #c3cad6; padding-left: 20px; margin: 0 0 18px; }
+  .prose :global(li) { margin-bottom: 8px; }
+  .prose :global(li::marker) { color: var(--c); }
+  .prose :global(code) { font-family: var(--mono); font-size: .86em; background: var(--surface-2); border: 1px solid var(--line); padding: 2px 6px; border-radius: 5px; }
+  .prose :global(blockquote) { margin: 24px 0; padding: 18px 22px; border-left: 3px solid var(--c); background: var(--surface); border-radius: 0 10px 10px 0; font-size: 18px; }
+  .prose :global(blockquote p) { margin: 0; color: var(--text); }
+
+  .side { position: sticky; top: 92px; display: grid; gap: 16px; }
+  .side-card { padding: 24px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--line); }
+  .side-card h3.mono { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); font-weight: 500; margin-bottom: 14px; }
+  .side-card dl { display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; margin: 0; font-size: 14.5px; }
+  .side-card dt { color: var(--muted); }
+  .side-card dd { margin: 0; text-align: right; }
+  .gh { display: block; margin-top: 18px; padding-top: 14px; border-top: 1px dashed var(--line-2); font-size: 13px; color: var(--accent); }
+  .gh:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .cta h3 { font-size: 20px; margin-bottom: 8px; }
+  .cta p { color: var(--muted); font-size: 15px; margin-bottom: 18px; }
+
+  .next { padding: 0 0 96px; }
+  .next-link { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; padding: 32px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); transition: border-color .2s ease; }
+  .next-link:hover { border-color: var(--c); }
+  .next-link span { color: var(--muted); font-size: 13px; }
+  .next-link strong { font-size: clamp(22px, 3vw, 30px); letter-spacing: -0.02em; }
+</style>

@@ -1,0 +1,384 @@
+{
+ "name": "lead-management-automation",
+ "nodes": [
+  {
+   "parameters": {},
+   "name": "validate email phone name",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    864,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "thanks",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.1,
+   "position": [
+    -16,
+    912
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "check exist of phone and email",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.7,
+   "position": [
+    192,
+    80
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "lead-form page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    192,
+    -240
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "lead-form",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.1,
+   "position": [
+    -32,
+    -240
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "lead-submit",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.1,
+   "position": [
+    -32,
+    80
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "redirect to duplicate",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    864,
+    -16
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "duplicate page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    160,
+    672
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "duplicate",
+   "type": "n8n-nodes-base.webhook",
+   "typeVersion": 2.1,
+   "position": [
+    -64,
+    672
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "thanks page",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    432,
+    912
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "redirect to thanks",
+   "type": "n8n-nodes-base.respondToWebhook",
+   "typeVersion": 1.5,
+   "position": [
+    2112,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "OpenAI Chat Model",
+   "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+   "typeVersion": 1.3,
+   "position": [
+    1728,
+    432
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "which one",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    416,
+    80
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "if exist",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    640,
+    80
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "if valid",
+   "type": "n8n-nodes-base.if",
+   "typeVersion": 2.3,
+   "position": [
+    1072,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "score",
+   "type": "n8n-nodes-base.code",
+   "typeVersion": 2,
+   "position": [
+    1312,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "handle notification with intent analysis",
+   "type": "@n8n/n8n-nodes-langchain.agent",
+   "typeVersion": 3.1,
+   "position": [
+    1760,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "get lead data",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.7,
+   "position": [
+    208,
+    912
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "append lead",
+   "type": "n8n-nodes-base.googleSheets",
+   "typeVersion": 4.7,
+   "position": [
+    1536,
+    176
+   ]
+  },
+  {
+   "parameters": {},
+   "name": "send a notification to me",
+   "type": "n8n-nodes-base.pushoverTool",
+   "typeVersion": 1,
+   "position": [
+    1904,
+    416
+   ]
+  }
+ ],
+ "connections": {
+  "validate email phone name": {
+   "main": [
+    [
+     {
+      "node": "if valid",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "thanks": {
+   "main": [
+    [
+     {
+      "node": "get lead data",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "check exist of phone and email": {
+   "main": [
+    [
+     {
+      "node": "which one",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "lead-form page": {
+   "main": [
+    []
+   ]
+  },
+  "lead-form": {
+   "main": [
+    [
+     {
+      "node": "lead-form page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "lead-submit": {
+   "main": [
+    [
+     {
+      "node": "check exist of phone and email",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "duplicate": {
+   "main": [
+    [
+     {
+      "node": "duplicate page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "OpenAI Chat Model": {
+   "ai_languageModel": [
+    [
+     {
+      "node": "handle notification with intent analysis",
+      "type": "ai_languageModel",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "which one": {
+   "main": [
+    [
+     {
+      "node": "if exist",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "if exist": {
+   "main": [
+    [
+     {
+      "node": "redirect to duplicate",
+      "type": "main",
+      "index": 0
+     }
+    ],
+    [
+     {
+      "node": "validate email phone name",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "if valid": {
+   "main": [
+    [
+     {
+      "node": "score",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "score": {
+   "main": [
+    [
+     {
+      "node": "append lead",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "handle notification with intent analysis": {
+   "main": [
+    [
+     {
+      "node": "redirect to thanks",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "get lead data": {
+   "main": [
+    [
+     {
+      "node": "thanks page",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "append lead": {
+   "main": [
+    [
+     {
+      "node": "handle notification with intent analysis",
+      "type": "main",
+      "index": 0
+     }
+    ]
+   ]
+  },
+  "send a notification to me": {
+   "ai_tool": [
+    [
+     {
+      "node": "handle notification with intent analysis",
+      "type": "ai_tool",
+      "index": 0
+     }
+    ]
+   ]
+  }
+ }
+}
