@@ -239,6 +239,8 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
   :global([dir="rtl"]) .work-tabs[data-tab="sites"] .wt-thumb { transform: translateX(-100%); }
   @media (max-width: 680px) { .work-tabs { width: 100%; margin-bottom: 22px; } }
   .cards[hidden] { display: none; }
+  /* A lone card (e.g. one website) sits centered at the normal card width */
+  @media (min-width: 681px) { .cards > :global(:only-child) { grid-column: 1 / -1; justify-self: center; width: calc((100% - 20px) / 2); } }
   .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
   @media (max-width: 680px) { .cards { grid-template-columns: 1fr; } }
 
