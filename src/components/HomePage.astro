@@ -34,13 +34,6 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
   <!-- WORK -->
   <section id="work" class="work">
     <div class="wrap">
-      <div class="section-head">
-        <div>
-          <span class="eyebrow">{T.work.eyebrow}</span>
-          <h2>{T.work.title}</h2>
-        </div>
-        <p>{T.work.text}</p>
-      </div>
       <div class="work-tabs" role="tablist" aria-label={T.work.tabsLabel} data-tab="auto">
         <span class="wt-thumb" aria-hidden="true"></span>
         <button type="button" role="tab" id="tab-auto" aria-controls="panel-auto" aria-selected="true" data-t="auto">
@@ -49,6 +42,13 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
         <button type="button" role="tab" id="tab-sites" aria-controls="panel-sites" aria-selected="false" tabindex="-1" data-t="sites">
           {T.work.tabSites} <span class="wt-n mono">{sites.length}</span>
         </button>
+      </div>
+      <div class="section-head work-head" aria-live="polite">
+        <div>
+          <span class="eyebrow">{T.work.eyebrow}</span>
+          <h2><span data-for="auto">{T.work.title}</span><span data-for="sites" hidden>{T.work.sitesTitle}</span></h2>
+        </div>
+        <p><span data-for="auto">{T.work.text}</span><span data-for="sites" hidden>{T.work.sitesText}</span></p>
       </div>
       <div class="cards" id="panel-auto" role="tabpanel" aria-labelledby="tab-auto">
         {projects.map((p, i) => <ProjectCard project={p} index={i} />)}
@@ -194,6 +194,7 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
         b.tabIndex = on ? 0 : -1;
         document.getElementById(b.getAttribute('aria-controls')!)!.hidden = !on;
       });
+      document.querySelectorAll<HTMLElement>('.work-head [data-for]').forEach((el) => { el.hidden = el.dataset.for !== t.dataset.t; });
       if (focus) t.focus();
     };
     tabs.forEach((b, i) => {
@@ -230,6 +231,11 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
     transition: transform .35s cubic-bezier(.34, 1.56, .64, 1);
   }
   .work-tabs[data-tab="sites"] .wt-thumb { transform: translateX(100%); }
+  .work-head [data-for] { display: block; }
+  .work-head [data-for][hidden] { display: none; }
+  .work-head [data-for]:not([hidden]) { animation: wh-in .35s ease both; }
+  @keyframes wh-in { from { opacity: 0; transform: translateY(6px); } }
+  @media (prefers-reduced-motion: reduce) { .work-head [data-for] { animation: none; } }
   :global([dir="rtl"]) .work-tabs[data-tab="sites"] .wt-thumb { transform: translateX(-100%); }
   @media (max-width: 680px) { .work-tabs { width: 100%; margin-bottom: 22px; } }
   .cards[hidden] { display: none; }
