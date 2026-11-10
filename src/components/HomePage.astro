@@ -231,6 +231,10 @@ const stats = site.stats.map((s, i) => ({ value: s.value, label: T.hero.stats[i]
     transition: transform .35s cubic-bezier(.34, 1.56, .64, 1);
   }
   .work-tabs[data-tab="sites"] .wt-thumb { transform: translateX(100%); }
+  /* Work header: description always sits under the title, so the block keeps its shape whatever the tab */
+  .work-head { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .work-head h2 { max-width: 22ch; }
+  .work-head p { max-width: 60ch; }
   .work-head [data-for] { display: block; }
   .work-head [data-for][hidden] { display: none; }
   .work-head [data-for]:not([hidden]) { animation: wh-in .35s ease both; }
