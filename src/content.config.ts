@@ -32,4 +32,21 @@ const projects = defineCollection({
   }),
 });
 
-export const collections = { projects };
+// Websites tab: front-end sites, one Markdown file each in src/content/sites/.
+// Cards link straight to the live site (no case-study page).
+const sites = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/sites' }),
+  schema: z.object({
+    title: z.string(),
+    summary: z.string(),
+    type: z.string(),
+    order: z.number().default(99),
+    accent: z.string().default('#ea4b71'),
+    stack: z.array(z.string()),
+    image: z.string(), // screenshot under /public, 16:10
+    url: z.string().url(),
+    repo: z.string().url().optional(),
+  }),
+});
+
+export const collections = { projects, sites };

@@ -59,6 +59,7 @@ export const ui = {
       eyebrow: 'Selected work',
       title: "Systems I've designed & built",
       text: 'Each project solves a real business problem — with the actual workflow, the stack and the engineering decisions behind it.',
+      tabsLabel: 'Project type', tabAuto: 'Automations', tabSites: 'Websites', live: 'Live site', code: 'Code',
     },
     servicesHead: { eyebrow: 'Services', title: 'What I can build for you' },
     services: [
@@ -144,7 +145,8 @@ export const ui = {
     work: {
       eyebrow: 'أعمال مختارة',
       title: 'أنظمة صمّمتها وبنيتها',
-      text: 'كل مشروع يحل مشكلة عمل حقيقية — مع سير العمل الفعلي والأدوات والقرارات الهندسية وراءه. (تفاصيل المشاريع باللغة الإنجليزية)',
+      text: 'كل مشروع يحل مشكلة عمل حقيقية — مع سير العمل الفعلي والأدوات والقرارات الهندسية وراءه.',
+      tabsLabel: 'نوع المشروع', tabAuto: 'الأتمتة', tabSites: 'المواقع', live: 'الموقع', code: 'الكود',
     },
     servicesHead: { eyebrow: 'الخدمات', title: 'ماذا يمكنني أن أبني لك؟' },
     services: [
