@@ -1,0 +1,620 @@
+{
+  "name": "Invoice Reader — Gemini (batch, background)",
+  "nodes": [
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, job_id: $json.body.session_id }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -592,
+        624
+      ],
+      "name": "Ack Job"
+    },
+    {
+      "parameters": {
+        "jsCode": "// One row per invoice in the Data Table \"invoice_jobs\" (columns: job_id, status, result — all text).\n// The page asks for it with invoice-result?id=<job_id> every few seconds.\nconst j = $input.first().json;\nconst sid = $('Reference Data').first().json.selected?.session_id || '';\nconst failed = j.status === 'error' || !!j.error;\nreturn [{ json: { job_id: sid, status: failed ? 'error' : 'done', result: JSON.stringify(failed ? { status: 'error', summary: j.summary || j.error?.message || j.error || 'القراءة فشلت' } : j) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        816
+      ],
+      "name": "Store Result"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "YOUR_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        816
+      ],
+      "name": "Save Job"
+    },
+    {
+      "parameters": {
+        "path": "invoice-result",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        1488
+      ],
+      "name": "Result Request"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "YOUR_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "job_id",
+              "keyValue": "={{ $json.query.id || '-' }}"
+            }
+          ]
+        },
+        "limit": 1
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        -592,
+        1488
+      ],
+      "name": "Find Job",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// not saved yet -> still reading; saved -> the reading result (same as before)\nconst row = $input.first().json || {};\nif (!row.job_id) return [{ json: { reply: { status: 'reading' }, job_id: null } }];\nlet r; try { r = JSON.parse(row.result); } catch (e) { r = { status: 'error', summary: 'النتيجة اتخزنت ناقصة' }; }\nreturn [{ json: { reply: r, job_id: row.job_id } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        1488
+      ],
+      "name": "Build Reply"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.reply) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -144,
+        1488
+      ],
+      "name": "Return Job"
+    },
+    {
+      "parameters": {
+        "operation": "deleteRows",
+        "dataTableId": {
+          "__rl": true,
+          "value": "YOUR_DATA_TABLE_ID",
+          "mode": "id"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "job_id",
+              "keyValue": "={{ $json.job_id || '-' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        80,
+        1488
+      ],
+      "name": "Delete Job"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Builds the Gemini request. No item list in the prompt: the model only transcribes what is written\n// (fewer tokens), and the Parse node matches the names to the price list in code.\n// Thinking level HIGH (lower levels made reading mistakes). Thinking tokens are billed as output — the biggest cost/speed lever.\nconst body = $('Analyze Request').first().json.body || {};\nconst PROMPT = \"You read handwritten Arabic sales invoices from Egypt (company: a wholesale distribution company).\\nThe printed table has 4 columns, right to left: اسم الصنف (item) | السعر (price) | الكمية (quantity) | الإجمالي (total).\\nRead the invoice exactly as written. Do NOT correct anything and do NOT calculate anything.\\n\\nROWS (top to bottom, only rows with handwriting; the large zigzag line closing empty rows is NOT a row):\\n- written_name: the item name exactly as written, in Arabic, including the pack-size number (12, 20, 50, 600...).\\n- price_raw / qty_raw / total_raw: copy every number character by character in Arabic-Indic digits, exactly as written.\\n  The Arabic zero \\\"٠\\\" is a small dot or short dash and is easy to miss — count every digit (\\\"٦٠\\\" = 60, \\\"٤٨٠٠٠\\\" = 48000).\\n  Prices often have fractions: \\\"،\\\" \\\",\\\" or \\\"/\\\" between digits is a decimal point (\\\"١١،٥\\\" = 11.5);\\n  a small fraction next to or above the number: \\\"٢٥¼\\\" = 25.25, \\\"١١½\\\" = 11.5 — include it.\\n  If a number is crossed out or written over, use the final value. Illegible = null.\\n\\nMARGIN (handwriting below the last item, \\\"الإجمالي فقط وقدره\\\", \\\"المدفوع\\\", \\\"المتبقي\\\", side margins):\\n- subtotal, then \\\"خصم\\\" with an amount or a percentage, then the amount after discount. Copy only; do not calculate.\\n\\nHEADER:\\n- customer_written: the name after \\\"اسم العميل\\\" exactly as written; address_written: after \\\"العنوان\\\".\\n- sales_rep_written: the name or signature after \\\"اسم المندوب\\\" at the bottom.\\n- day_raw: only the day of the month from \\\"التاريخ\\\" (date is day/month/year, the day is the first number).\\n\\nIf the photo shows more than one invoice, read only the largest / most complete one and set invoice_count_visible accordingly.\\n\\nReturn ONLY this JSON:\\n{\\\"invoice_count_visible\\\": 1,\\n \\\"header\\\": {\\\"customer_written\\\": null, \\\"address_written\\\": null, \\\"sales_rep_written\\\": null, \\\"day_raw\\\": null},\\n \\\"rows\\\": [{\\\"row\\\": 1, \\\"written_name\\\": \\\"...\\\", \\\"price_raw\\\": \\\"٨٠٠\\\", \\\"qty_raw\\\": \\\"٦٠\\\", \\\"total_raw\\\": \\\"٤٨٠٠٠\\\"}],\\n \\\"margin\\\": {\\\"subtotal_raw\\\": null, \\\"discount_amount\\\": null, \\\"discount_percent\\\": null, \\\"after_discount_raw\\\": null, \\\"all_text\\\": \\\"\\\"}}\";\nreturn [{ json: { req_invoice: {\n  contents: [{ role: 'user', parts: [\n    { text: PROMPT },\n    { inline_data: { mime_type: body.mime || 'image/jpeg', data: body.image_b64 } },\n  ] }],\n  generationConfig: {\n    responseMimeType: 'application/json',\n    maxOutputTokens: 16000,\n    thinkingConfig: { thinkingLevel: 'high' },\n  },\n} } }];"
+      },
+      "name": "Build Requests1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googlePalmApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.req_invoice) }}",
+        "options": {
+          "timeout": 240000
+        }
+      },
+      "name": "Read Invoice1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        304,
+        816
+      ],
+      "retryOnFail": false,
+      "notesInFlow": true,
+      "onError": "continueRegularOutput",
+      "notes": "gemini-4-hydrogen · thinking medium"
+    },
+    {
+      "parameters": {
+        "path": "invoice",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Page",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Analyze Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Reference data: price list (sent to Gemini) + customers (used only by the Parse node, NOT sent to Gemini).\n// SAMPLE DATA — replace with your own price list and customer list (e.g. generated from Excel).\nconst catalog_items = [\n {\n  \"code\": \"ITM001\",\n  \"name\": \"زيت عباد الشمس 1 لتر\",\n  \"price\": 85\n },\n {\n  \"code\": \"ITM002\",\n  \"name\": \"سكر أبيض 1 كيلو\",\n  \"price\": 38\n },\n {\n  \"code\": \"ITM003\",\n  \"name\": \"أرز مصري 1 كيلو\",\n  \"price\": 42\n },\n {\n  \"code\": \"ITM004\",\n  \"name\": \"مكرونة 400 جم\",\n  \"price\": 18.5\n },\n {\n  \"code\": \"ITM005\",\n  \"name\": \"شاي ناعم 250 جم\",\n  \"price\": 95\n },\n {\n  \"code\": \"ITM006\",\n  \"name\": \"عسل نحل 450 جم\",\n  \"price\": 134\n },\n {\n  \"code\": \"ITM007\",\n  \"name\": \"بلح بدون نوى 400 جم\",\n  \"price\": 100\n },\n {\n  \"code\": \"ITM008\",\n  \"name\": \"Stevia 40 sachets\",\n  \"price\": 60\n },\n {\n  \"code\": \"ITM009\",\n  \"name\": \"Baby drink 10 sachets\",\n  \"price\": 32\n },\n {\n  \"code\": \"ITM010\",\n  \"name\": \"صابون سائل 1 لتر\",\n  \"price\": 55\n }\n];\nconst customers = [\n {\n  \"id\": \"CUST-0001\",\n  \"name\": \"ماركت النور\"\n },\n {\n  \"id\": \"CUST-0002\",\n  \"name\": \"صيدلية الأمل\"\n },\n {\n  \"id\": \"CUST-0003\",\n  \"name\": \"أسواق الخير\"\n },\n {\n  \"id\": \"CUST-0004\",\n  \"name\": \"عطارة البركة\"\n },\n {\n  \"id\": \"CUST-0005\",\n  \"name\": \"سوبر ماركت السلام\"\n },\n {\n  \"id\": \"CUST-0006\",\n  \"name\": \"هايبر الياسمين\"\n }\n];\n// names only (no prices): Gemini matches by name; prices are checked in the Parse node\nconst customers_text = customers.map((c, i) => `${i + 1} | ${c.name}`).join('\\n');\n// shorter list for the prompt: the word \"فلتر\" repeats in most names and tells items apart in none\nconst catalog_text = catalog_items.map(i => `${i.code} | ${i.name.replace(/\\s*فلتر\\s*/g, ' ').replace(/\\s+/g, ' ').trim()}`).join('\\n');\n// The page sends the photo as base64 JSON -> turn it into binary 'data' for the model node.\nconst body = $input.first().json.body || {};\nlet binary;\nif (body.image_b64) {\n  binary = { data: await this.helpers.prepareBinaryData(Buffer.from(body.image_b64, 'base64'), 'invoice.jpg', body.mime || 'image/jpeg') };\n}\nconst selected = { customer_id: body.customer_id || null, date: body.date || null, sales_rep: body.sales_rep || '', customer_later: !!body.customer_later, session_id: body.session_id || null };\nreturn [{ json: { catalog_items, customers, catalog_text, has_image: !!binary, selected }, ...(binary ? { binary } : {}) }];\n"
+      },
+      "name": "Reference Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -368,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "img",
+              "leftValue": "={{ $json.has_image }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Has Image?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "numberInputs": 1
+      },
+      "name": "Wait For All",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        528,
+        816
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse & Validate — turns Gemini's reply into clean JSON, double-checks it, builds the Telegram message.\n// Nothing is changed automatically: anything doubtful goes to review.\nconst MAX_DISCOUNT = 15;        // % below list price accepted as a customer discount\nconst MAX_ABOVE = 2.5;          // % above list price accepted (rounding)\nconst MAX_INVOICE_DISCOUNT = 20;// % discount on the whole invoice accepted\nconst MAX_DATE_AGE_DAYS = 45;   // invoices older than this go to review\nconst ITEM_MIN = 0.75, CUSTOMER_MIN = 0.7;\nconst priceOk = (p, cat) => p <= cat.price * (1 + MAX_ABOVE / 100) && p >= cat.price * (1 - MAX_DISCOUNT / 100);\n\n// ---------- helpers ----------\nconst DIG = { '٠':0,'١':1,'٢':2,'٣':3,'٤':4,'٥':5,'٦':6,'٧':7,'٨':8,'٩':9 };\nconst toNum = (v) => {\n  if (v === null || v === undefined || v === '') return null;\n  let t = String(v).replace(/[٠-٩]/g, d => DIG[d]).replace(/[٫،]/g, '.');\n  const frac = { '¼': 0.25, '½': 0.5, '¾': 0.75 }[(t.match(/[¼½¾]/) || [])[0]] || 0;   // \"٢٥¼\" = 25.25\n  const n = parseFloat(t.replace(/[^\\d.\\-]/g, '')) + (frac && !/\\./.test(t) ? frac : 0);\n  return Number.isFinite(n) ? n : null;\n};\nconst fmt = (n) => n == null ? '؟' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n// works with the OpenAI node and the Gemini node, whatever shape the reply comes in\nconst asText = (v) => typeof v === 'string' ? v : Array.isArray(v) ? v.map(asText).join('') : v && typeof v === 'object' ? (v.text ?? v.content ?? '') : '';\nconst getText = (j) =>\n  asText(j.content) || asText(j.message?.content) || asText(j.choices?.[0]?.message?.content) ||\n  asText(j.output) || asText(j.text) || asText(j.content?.parts) ||\n  asText(j.candidates?.[0]?.content?.parts) || JSON.stringify(j);\n\n// Arabic-aware name similarity (0..1)\nconst norm = (s) => String(s || '').replace(/[٠-٩]/g, d => DIG[d])\n  .replace(/[ً-ْٰـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه')\n  .replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ء/g, '')\n  .replace(/[^\\p{L}\\p{N}]+/gu, ' ').trim().replace(/\\s+/g, ' ').toLowerCase();\nconst stem = (t) => { for (const p of ['بال', 'وال', 'ال']) if (t.startsWith(p) && t.length - p.length >= 3) return t.slice(p.length); return t; };\nconst STOP = new Set(['فلتر', 'مغلف', 'علبه', 'جردل', 'جرادل', 'علب', 'ايزيس', 'جم', 'جرام', 'ملي', 'كيلو', 'لتر', 'ماركت', 'سوبر']);\nconst words = (s) => norm(s).split(' ').filter(Boolean).map(stem).filter(t => t.length > 1 && !/\\d/.test(t) && !STOP.has(t));   // single letters like \"ك\" are units, not words\nconst nums = (s) => (norm(s).match(/\\d+/g) || []).map(Number);\nconst dice = (a, b) => {\n  if (a === b) return 1; if (a.length < 2 || b.length < 2) return 0;\n  const A = [], B = []; for (let i = 0; i < a.length - 1; i++) A.push(a.slice(i, i + 2)); for (let i = 0; i < b.length - 1; i++) B.push(b.slice(i, i + 2));\n  const n = A.length + B.length; let hit = 0;\n  for (const g of A) { const k = B.indexOf(g); if (k >= 0) { hit++; B.splice(k, 1); } }\n  return (2 * hit) / n;\n};\nconst wsim = (a, b) => (a === b ? 1 : Math.min(a.length, b.length) >= 3 && (a.startsWith(b) || b.startsWith(a)) ? 0.9 : dice(a, b));\nconst nameScore = (raw, cand) => {\n  const R = words(raw), C = words(cand); if (!R.length || !C.length) return 0;\n  const cover = (X, Y) => X.reduce((s, x) => s + Math.max(...Y.map(y => wsim(x, y))), 0) / X.length;\n  return 0.6 * cover(R, C) + 0.4 * cover(C, R);\n};\n\n// ---------- learned memory (filled by \"Save Invoice\" every time an invoice is confirmed) ----------\nconst memory = $getWorkflowStaticData('global');\nconst best = (counts) => counts ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] : null;\nconst learnedItem = (written) => best(memory.items?.[norm(written)]);\nconst learnedCustomer = (written) => best(memory.customers?.[norm(written)]);\n\n// ---------- reference data ----------\n// find a node even if n8n added a number to its name when copying (\"Reference Data1\", \"Reference Data2\", ...)\nconst nodeByBase = (base) => {\n  for (const name of [base, ...Array.from({ length: 9 }, (_, i) => base + (i + 1))]) {\n    try { const it = $(name).first(); if (it && it.json && it.json.catalog_items !== undefined || (it && it.json && base !== 'Reference Data')) return it; } catch (e) {}\n  }\n  throw new Error(`node \"${base}\" not found`);\n};\nconst ref = nodeByBase('Reference Data').json;\nconst catalog = ref.catalog_items;\nconst byCode = Object.fromEntries(catalog.map(c => [c.code, c]));\n\n/** Gemini's item pick is only a hint: it must actually look like the written name. If it doesn't, the\n *  item is matched by name in code. The pack size written on the invoice must match — never changed. */\nfunction resolveItem(it) {\n  const written = it.written_name || '';\n  const wNums = nums(written);\n  const packOk = (c) => !wNums.length || wNums.every(n => nums(c.name).includes(n));\n  // 1) confirmed before? (learned from your corrections)\n  const mem = byCode[learnedItem(written)];\n  if (mem) return { cat: mem, learned: true };\n  const g = byCode[it.item_code];\n  if (g && packOk(g) && nameScore(written, g.name) >= 0.5) return { cat: g };\n  const ranked = catalog.filter(packOk).map(c => ({ c, s: nameScore(written, c.name) }))\n    .sort((a, b) => b.s - a.s);\n  // \"جردل\" / \"علبة\" with no size written = a kilo pack. It is the only size evidence, so it is used:\n  // a non-kilo item is accepted only if its name matches exactly; otherwise only kilo items are considered,\n  // and if none of them looks like the written name the line is left for you to choose (never a random item).\n  const kiloWritten = /\\d+ ?(ك|كيلو|كجم)( |$)/.test(norm(written));          // \"5ك\" / \"5 كيلو\" written\n  const kiloHint = kiloWritten || (!wNums.length && /(^| )(جردل|جرادل|علبه|علب)( |$)/.test(norm(written)));\n  if (kiloHint) {\n    const isKilo = (c) => /كيلو|(^| )ك( |$)/.test(norm(c.name));\n    const exact = ranked.filter(r => r.s >= 0.95);\n    if (!(exact.length && !isKilo(exact[0].c))) {\n      const kilo = ranked.filter(r => isKilo(r.c) && r.s >= 0.5);\n      if (!kilo.length) {\n        // the name was misread (e.g. \"فيتا\" read as \"قشطه\"): narrow down by what IS clear —\n        // a kilo pack whose list price fits the written price — then take the closest name among those\n        const price = toNum(it.price_raw) ?? toNum(it.price);\n        const fits = price == null ? [] : catalog.filter(c => isKilo(c) && packOk(c) && price >= c.price * (1 - MAX_DISCOUNT / 100) && price <= c.price * (1 + MAX_ABOVE / 100));\n        if (!fits.length) return { cat: null, options: [], kiloNoMatch: true };\n        // the shape of the misread word still helps: same number of words and same number of letters\n        // (\"قشطه\" = 1 word, 4 letters -> \"فيتا\" before \"ملح خفيف\" or \"اسطمبولي\")\n        const GENERIC = new Set(['جبنه', 'طبيعي', 'طبيعى']);\n        const core = (x) => words(x).filter(w => !GENERIC.has(w));\n        const W = core(written);\n        // letters counted as written (ء counts as a letter: \"ضياء\" = 4, like \"فيتا\")\n        const asWritten = String(written).replace(/[ً-ْٰـ]/g, '').split(/\\s+/)\n          .filter(t => t.length > 1 && !/\\d/.test(t) && !/^(جردل|جرادل|علبه|علبة|علب|كيلو|كجم)$/.test(t));\n        const wLen = asWritten.join('').length || W.join('').length;\n        const byName = fits.map(c => {\n          const C = core(c.name);\n          return { c, wd: Math.abs(C.length - W.length), ld: Math.abs(C.join('').length - wLen), s: Math.max(nameScore(written, c.name), dice(W.join(''), C.join(''))) };\n        }).sort((a, b) => a.wd - b.wd || a.ld - b.ld || b.s - a.s);\n        return { cat: byName[0].c, auto: true, byPrice: true, options: byName.slice(0, 8).map(r => r.c.name) };\n      }\n      const [k1, k2] = kilo;\n      if (k1.s >= ITEM_MIN && (!k2 || k1.s - k2.s >= 0.08)) return { cat: k1.c };\n      return { cat: k1.c, auto: true, options: kilo.slice(0, 3).map(r => r.c.name) };\n    }\n  }\n  const [b1, b2] = ranked;\n  if (b1 && b1.s >= ITEM_MIN && (!b2 || b1.s - b2.s >= 0.08)) return { cat: b1.c };\n  // not an exact match: take the closest item anyway (Gemini's pick first, then the best name match) and flag it\n  const g2 = g && packOk(g) ? g : null;\n  // no word in common at all -> fall back to plain letter similarity of the whole name\n  const letters = (x) => norm(x).replace(/[\\d\\s]/g, '');\n  const byLetters = !g2 && !(b1 && b1.s > 0)\n    ? catalog.filter(packOk).map(c => ({ c, s: dice(letters(written), letters(c.name)) })).sort((a, b) => b.s - a.s)[0] : null;\n  const pick = g2 || (b1 && b1.s > 0 ? b1.c : null) || (byLetters ? byLetters.c : null);\n  return { cat: pick, auto: !!pick, options: ranked.slice(0, 3).map(r => r.c.name) };\n}\n\n// OpenAI reasoning models return a \"reasoning\" block plus the actual \"message\" — read only the message text.\nconst collect = (v) => {\n  if (Array.isArray(v)) return v.map(collect).join('');\n  if (!v || typeof v !== 'object') return typeof v === 'string' ? v : '';\n  if (v.type === 'reasoning') return '';\n  if (v.type === 'output_text' || v.type === 'text') return v.text || '';\n  if (v.type === 'message') return collect(v.content);\n  if (Array.isArray(v.output)) return collect(v.output);        // OpenAI Responses API (HTTP Request node)\n  return getText(v);\n};\n// ---- the 4 specialised readers (each one reads one part of the invoice) ----\n// The readers' replies arrive on this node's input (from \"Wait For All\"), so no reader names are needed.\n// Each reply is recognised by what it contains: item names, numbers, margin — or everything (single reader).\nconst replies = $input.all().map(i => i.json?.body ?? i.json);\nconst parsed = replies.map(r => {\n  try {\n    const text = collect(r).replace(/```json|```/g, '').trim();\n    return JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));\n  } catch (e) { return null; }\n}).filter(Boolean);\nconst rowsWith = (key) => parsed.find(p => (p.rows || []).some(r => r[key] !== undefined));\nconst itemsR = rowsWith('written_name') || null;\nconst numbersR = rowsWith('price_raw') || rowsWith('qty_raw') || null;\nconst headerSuggest = parsed.find(p => p.header)?.header || {};\nconst invoiceCount = Math.max(0, ...parsed.map(p => Number(p.invoice_count_visible) || 0));\nconst marginR = parsed.find(p => p.margin)?.margin\n  || parsed.find(p => !p.rows && ('subtotal_raw' in p || 'after_discount_raw' in p || 'all_text' in p)) || null;\n// customer, date and rep are chosen on the page by the rep — not read from the photo\nconst selected = ref.selected || {};\nconst headerR = { customer_written: headerSuggest.customer_written || '', sales_rep: selected.sales_rep || headerSuggest.sales_rep_written || '', day_raw: headerSuggest.day_raw || null };\n\n\n// ---------- cost of this reading (all model calls), in EGP ----------\n// Prices in USD per 1M tokens: [normal input, cached input, cache writes, output]. Output includes reasoning tokens.\nconst RATES = {\n  'gemini-4-hydrogen': [1.50, 0.075, null, 7.50],\n  'gpt-6.1-terra': [1.00, 0.05, 1.25, 5.00],\n  'gpt-6-luna':    [0.10, 0.01, 0.125, 0.50],\n  'gpt-6.1-sol':   [2.00, null, null, 10.00],\n  'gpt-4.1-mini':  [0.40, 0.10, null, 1.60],\n};\nconst EGP_PER_USD = 56.2;   // ← update when the dollar rate changes (NBE sell rate, late Oct 2026)\nconst costOf = (r) => {\n  if (r?.usageMetadata) {                       // Gemini API format; thinking tokens are billed as output\n    const u = r.usageMetadata, rate = RATES[String(r.modelVersion || 'gemini-4-hydrogen').replace(/-\\d.*$/, '')] || RATES['gemini-4-hydrogen'];\n    const cached = u.cachedContentTokenCount ?? 0;\n    return (((u.promptTokenCount ?? 0) - cached) * rate[0] + cached * (rate[1] ?? rate[0]) + ((u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0)) * rate[3]) / 1e6;\n  }\n  const usage = r?.usage; if (!usage) return null;\n  const rate = RATES[String(r.model || '').replace(/-\\d{4}-\\d{2}-\\d{2}$/, '')]; if (!rate) return null;\n  const cached = usage.input_tokens_details?.cached_tokens ?? 0;\n  const writes = usage.input_tokens_details?.cache_write_tokens ?? 0;\n  const normal = (usage.input_tokens ?? 0) - cached - writes;\n  return (normal * rate[0] + cached * (rate[1] ?? rate[0]) + writes * (rate[2] ?? rate[0]) + (usage.output_tokens ?? 0) * rate[3]) / 1e6;\n};\nconst costInfo = (() => {\n  let usd = 0, tokens = 0, calls = 0, unknown = 0;\n  {\n    for (const r of replies) {\n      const c = costOf(r);\n      const usage = r?.usage || r?.usageMetadata;\n      if (usage) { calls++; tokens += usage.total_tokens ?? usage.totalTokenCount ?? ((usage.input_tokens ?? 0) + (usage.output_tokens ?? 0)); }\n      if (c === null) { if (usage) unknown++; } else usd += c;\n    }\n  }\n  return calls ? { cost_usd: +usd.toFixed(6), cost_egp: +(usd * EGP_PER_USD).toFixed(2), tokens, calls, cost_unknown_models: unknown } : null;\n})();\n\n// ---------- running total for the whole invoice (all readings: photo changed, retries, failed attempts) ----------\n// The page adds up every reading of an invoice itself. Nothing is written to the workflow's memory here:\n// readings run in parallel, and n8n saves the whole memory at the end of each run, so parallel writes\n// would overwrite each other (and could wipe what was learned from your corrections).\nconst sessionTotal = null;\n\nreturn [{ json: {} }].map(() => {\n  if (!itemsR && !numbersR) return { json: { status: 'error',\n    summary: '⚠️ معرفتش أقرا الفاتورة — صوّرها تاني في إضاءة كويسة ومن فوق مباشرة' } };\n\n  // join item names and numbers by row number\n  const nameRows = (itemsR?.rows || []), numRows = (numbersR?.rows || []);\n  const rowNos = [...new Set([...nameRows, ...numRows].map(r => Number(r.row)).filter(n => n > 0))].sort((a, b) => a - b);\n  const data = {\n    // only the DAY is read; month and year are today's (previous month if the day is after today)\n    date: (() => {\n      const d = parseInt(toNum(headerR?.day_raw) ?? toNum(headerR?.day), 10);\n      if (!(d >= 1 && d <= 31)) return null;\n      const now = new Date(); let y = now.getFullYear(), m = now.getMonth() + 1;\n      if (d > now.getDate()) { m -= 1; if (m === 0) { m = 12; y -= 1; } }\n      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;\n    })(),\n    customer_written: headerR?.customer_written || '',\n    customer_no: toNum(headerR?.customer_no),\n    sales_rep: headerR?.sales_rep || '',\n    items: rowNos.map(n => ({ ...(nameRows.find(r => Number(r.row) === n) || {}), ...(numRows.find(r => Number(r.row) === n) || {}) })),\n    subtotal_raw: marginR?.subtotal_raw ?? null,\n    discount_amount: marginR?.discount_amount ?? null,\n    discount_percent: marginR?.discount_percent ?? null,\n    after_discount_written: marginR?.after_discount_raw ?? null,\n    margin_text: marginR?.all_text || '',\n  };\n  const readerProblems = [];\n  if (!itemsR) readerProblems.push('قارئ الأصناف مرجعش نتيجة');\n  if (!numbersR) readerProblems.push('قارئ الأرقام مرجعش نتيجة');\n  if (itemsR && numbersR && nameRows.length !== numRows.length)\n    readerProblems.push(`عدد السطور مختلف: ${nameRows.length} اسم و ${numRows.length} سطر أرقام — راجع ترتيب السطور`);\n\n  const issues = [];               // { row, text } — row 0 = invoice level\n  const notes = [];                // automatic, confirmed corrections (shown with ℹ️)\n  const add = (row, text) => issues.push({ row, text });\n  readerProblems.forEach(t => add(0, t));\n  if (invoiceCount > 1) add(0, `الصورة فيها ${invoiceCount} فواتير — اتقرت واحدة بس، صوّر كل فاتورة لوحدها`);\n\n  // ---- lines ----\n  const items = (data.items || []).map((it, i) => {\n    const row = i + 1;\n    // prefer the digit-by-digit transcription (Arabic digits) over Gemini's own conversion\n    const pick = (rawV, v) => toNum(rawV) ?? toNum(v);\n    let price = pick(it.price_raw, it.price); let qty = pick(it.qty_raw, it.qty); let total = pick(it.total_raw, it.total);\n    // price not written (or not clear) -> total ÷ qty\n    if (price == null && qty && total != null) {\n      price = +(total / qty).toFixed(2);\n      notes.push(`سطر ${row}: السعر مش واضح — اتحسب ${fmt(total)} ÷ ${fmt(qty)} = ${fmt(price)}`);\n    }\n    // quantity not written -> total ÷ price, only when it comes out a whole number\n    if (qty == null && price && total != null && Math.abs(total / price - Math.round(total / price)) < 0.01) {\n      qty = Math.round(total / price);\n      notes.push(`سطر ${row}: الكمية مش واضحة — اتحسبت ${fmt(total)} ÷ ${fmt(price)} = ${fmt(qty)}`);\n    }\n    // total not written on the line -> calculate it ourselves\n    if (total == null && price != null && qty != null) {\n      total = +(price * qty).toFixed(2);\n      notes.push(`سطر ${row}: الإجمالي مش مكتوب — اتحسب ${fmt(qty)} × ${fmt(price)} = ${fmt(total)}`);\n    }\n    const { cat, options, auto, learned, kiloNoMatch, byPrice } = resolveItem(it);\n    if (byPrice) add(row, `\"${it.written_name}\" مش واضح — اتختار من السعر والحجم (جردل = كيلو)، ممكن يكون: ${options.join(' / ')}`);\n  if (!cat) add(row, kiloNoMatch ? `\"${it.written_name}\" — صنف بالكيلو ومفيش زيه في قائمة الأسعار، اختاره بنفسك` : `الصنف \"${it.written_name}\" مش واضح` + (options?.length ? ` — يمكن: ${options.join(' / ')}` : ''));\n\n    // Fractions / decimal commas are often missed (\"٢٥¼\" read as 25, \"١١،٥\" read as 11 or 115).\n    // If total ÷ qty equals the read price + ¼ / ½ / ¾ (or the same digits with a decimal point), the\n    // quantity and total confirm what is really written — use it and leave a note.\n    if (price != null && qty && total != null && Math.abs(price * qty - total) > Math.max(1, total * 0.005)) {\n      const real = total / qty;\n      const frac = real - Math.floor(price);\n      const fractionMissed = Math.floor(real) === Math.floor(price) && [0.25, 0.5, 0.75].some(f => Math.abs(frac - f) < 0.005);\n      const decimalMissed = [10, 100].some(k => Math.abs(real * k - price) < 0.01);\n      if (fractionMissed || decimalMissed) {\n        notes.push(`سطر ${row}: السعر ${fmt(real)} (اتقرا ${fmt(price)} من غير الكسر)`);\n        price = +real.toFixed(2);\n      }\n    }\n    const calc = price != null && qty != null ? +(price * qty).toFixed(2) : null;\n    if (calc == null || total == null || Math.abs(calc - total) > Math.max(1, total * 0.005))\n      add(row, `الحساب مش مظبوط: ${fmt(qty)} × ${fmt(price)} = ${fmt(calc)} والمكتوب ${fmt(total)}`);\n\n    let discount_pct = null;\n    if (cat && price != null) {\n      const diff = ((price - cat.price) / cat.price) * 100;\n      if (diff > MAX_ABOVE) add(row, `السعر ${fmt(price)} أعلى من القائمة ${fmt(cat.price)}`);\n      else if (diff < -MAX_DISCOUNT) add(row, `السعر ${fmt(price)} أقل من القائمة ${fmt(cat.price)} بـ ${(-diff).toFixed(0)}%`);\n      else if (diff < -0.5) discount_pct = +(-diff).toFixed(1);\n    }\n    return { row, written_name: it.written_name, item_code: cat?.code || null, item_name: cat?.name || null, auto_picked: !!auto, learned: !!learned, by_price: !!byPrice, options: byPrice ? options : [],\n      _cat: cat,\n      list_price: cat?.price ?? null, price, qty, total, discount_pct };\n  });\n\n  // ---- suggestion: price far above list, but another price on this invoice (or the list price) gives the same\n  //      total with a whole-number quantity -> suggest it (e.g. 20 × 1200 read, 30 × 800 written). Never applied automatically.\n  const pricesSeen = items.map(x => x.price).filter(p => p != null);\n  for (const x of items) {\n    const cat = x._cat; delete x._cat;\n    if (!cat || x.price == null || x.total == null || x.price <= cat.price * (1 + MAX_ABOVE / 100)) continue;\n    const options = [...new Set([...pricesSeen, cat.price])].filter(p => p !== x.price && priceOk(p, cat));\n    for (const p of options) {\n      const q = x.total / p;\n      if (q >= 1 && Math.abs(q - Math.round(q)) < 0.001) { x.suggestion = { qty: Math.round(q), price: p }; \n        add(x.row, `ممكن يكون ${Math.round(q)} × ${fmt(p)} = ${fmt(x.total)}`); break; }\n    }\n  }\n  items.forEach(x => delete x._cat);\n\n  // ---- totals (line totals are the reference; written totals are only compared, never trusted blindly) ----\n  const lines_sum = +items.reduce((s, x) => s + (x.total || 0), 0).toFixed(2);\n  const subtotal_written = toNum(data.subtotal_raw) ?? toNum(data.subtotal_written);\n  if (subtotal_written != null && Math.abs(subtotal_written - lines_sum) > 1)\n    add(0, `مجموع السطور ${fmt(lines_sum)} لكن المجموع المكتوب ${fmt(subtotal_written)}` +\n      (Math.abs(subtotal_written - lines_sum * 10) <= 1 ? ' (غالباً صفر اتقرا غلط)' : ''));\n  const final_written = toNum(data.after_discount_written);\n  // the written after-discount amount wins (it is what the customer pays); a written amount or % is checked against it\n  const writtenAmount = toNum(data.discount_amount);\n  const pct = toNum(data.discount_percent);\n  const fromPct = pct != null ? +(lines_sum * pct / 100).toFixed(2) : null;\n  let discount = null;\n  if (final_written != null && final_written <= lines_sum + 1) discount = +(lines_sum - final_written).toFixed(2);\n  else if (writtenAmount != null) discount = writtenAmount;\n  else if (fromPct != null) discount = fromPct;\n  if (final_written != null && discount != null) {\n    const other = writtenAmount ?? fromPct;\n    if (other != null && Math.abs(other - discount) > Math.max(1, discount * 0.01))\n      add(0, `الخصم المكتوب ${writtenAmount != null ? fmt(writtenAmount) : pct + '% = ' + fmt(fromPct)} مش مطابق للمكتوب بعد الخصم (يعني خصم ${fmt(discount)}) — اتاخد المكتوب بعد الخصم`);\n  }\n  const grand_total = +(lines_sum - (discount || 0)).toFixed(2);\n  const discount_pct = discount ? +((discount / lines_sum) * 100).toFixed(1) : null;\n  if (discount_pct != null && discount_pct > MAX_INVOICE_DISCOUNT) add(0, `خصم الفاتورة ${discount_pct}% كبير`);\n  if (final_written != null && final_written > lines_sum + 1) add(0, `الصافي المكتوب ${fmt(final_written)} أكبر من مجموع السطور`);\n\n  // ---- date (checked, never changed) ----\n  // date not clear on the invoice -> today's date (a note, not a problem)\n  const todayStr = new Date(Date.now() + 2 * 3600000).toISOString().slice(0, 10);   // Cairo time\n  if (!data.date) notes.push(`التاريخ مش واضح في الفاتورة — اتحط تاريخ النهاردة ${todayStr}`);\n  const date = data.date || todayStr;\n  const age = (Date.now() - new Date(date + 'T12:00:00Z')) / 86400000;\n  if (isNaN(age)) notes.push('التاريخ مش مفهوم — اتحط تاريخ النهاردة');\n  else if (age < -1 || age > MAX_DATE_AGE_DAYS) add(0, `التاريخ ${date} غريب — راجعه`);\n\n  // ---- customer: closest name in the list ----\n  const written = (data.customer_written || '').trim();\n  const ranked = written ? ref.customers.map(c => ({ c, s: norm(c.name) === norm(written) ? 1 : nameScore(written, c.name) }))\n    .sort((a, b) => b.s - a.s).slice(0, 3) : [];\n  // the header reader picked the customer from the list by letter shape — use that first\n  const readerPick = data.customer_no ? ref.customers[data.customer_no - 1] : null;\n  const memId = learnedCustomer(written);\n  const memCustomer = memId ? ref.customers.find(c => c.id === memId) : null;\n  const chosen = selected.customer_id ? ref.customers.find(c => c.id === selected.customer_id) : null;\n  const bestCustomer = chosen || memCustomer || readerPick || (ranked[0] && ranked[0].s >= CUSTOMER_MIN ? ranked[0].c : null);\n  if (!bestCustomer && !selected.customer_later) add(0, `العميل \"${written || '؟'}\" مش في القائمة` + (ranked.length ? ` — أقرب: ${ranked.map(r => r.c.name).join(' / ')}` : ''));\n\n  // ---- Telegram message (HTML) ----\n  issues.sort((a, b) => a.row - b.row);\n  items.forEach(x => { x.issues = issues.filter(i => i.row === x.row).map(i => i.text); });\n  const status = issues.length ? 'needs_review' : 'ready';\n  const line = '━━━━━━━━━━━━━━';\n  const msg = [\n    status === 'ready' ? '✅ <b>الفاتورة سليمة</b>' : '⚠️ <b>الفاتورة محتاجة مراجعة</b>',\n    '',\n    `👤 <b>العميل:</b> ${esc(bestCustomer ? bestCustomer.name : written || '؟')}`,\n    `📅 <b>التاريخ:</b> ${esc(date || '؟')}`,\n    line,\n    ...items.map(x => [\n      `<b>${x.row}. ${esc(x.item_name || x.written_name)}</b>${x.item_name ? '' : ' ❓'}`,\n      `     ${fmt(x.qty)} × ${fmt(x.price)} = <b>${fmt(x.total)}</b>${x.discount_pct ? `  <i>(خصم ${x.discount_pct}%)</i>` : ''}`,\n    ].join('\\n')),\n    line,\n    discount\n      ? `المجموع: ${fmt(lines_sum)}\\nالخصم: ${fmt(discount)} (${discount_pct}%)\\n💰 <b>الصافي: ${fmt(grand_total)}</b>`\n      : `💰 <b>الإجمالي: ${fmt(grand_total)}</b>`,\n    ...(issues.length ? ['', '<b>محتاج مراجعة:</b>', ...issues.map(x => `• ${x.row ? `سطر ${x.row}: ` : ''}${esc(x.text)}`)] : []),\n    ...(notes.length ? ['', ...notes.map(s => `ℹ️ ${esc(s)}`)] : []),\n  ].join('\\n');\n\n  return { json: {\n    status, date,\n    customer_learned: !!memCustomer,\n    customer_written: written, customer_id: bestCustomer?.id || null, customer_name: bestCustomer?.name || null,\n    sales_rep: data.sales_rep, sales_rep_written: headerSuggest.sales_rep_written || '', address_written: headerSuggest.address_written || '', margin_text: data.margin_text,\n    items, lines_sum, discount, discount_pct, grand_total,\n    after_discount: final_written ?? null,\n    issues: issues.map(x => (x.row ? `سطر ${x.row}: ` : '') + x.text),\n    invoice_issues: issues.filter(x => !x.row).map(x => x.text), notes,\n    summary: msg,\n    date_read: data.date || todayStr,\n    cost: costInfo,\n    cost_total: sessionTotal,\n  } };\n});\n"
+      },
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        752,
+        816
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Serves the upload/review page with the item & customer lists embedded.\nconst ref = $('Reference Data').first().json;\nconst safe = (v) => JSON.stringify(v).replace(/</g, '\\\\u003c');\nconst html = \"<!DOCTYPE html>\\n<html lang=\\\"ar\\\" dir=\\\"rtl\\\">\\n<head>\\n<meta charset=\\\"utf-8\\\">\\n<meta name=\\\"viewport\\\" content=\\\"width=device-width, initial-scale=1\\\">\\n<title>فواتير المبيعات</title>\\n<style>\\n  :root {\\n    --bg: #f4f5f7; --card: #fff; --ink: #1d2433; --muted: #6b7385; --line: #e3e6ec;\\n    --brand: #1f5fbf; --brand-ink: #fff; --ok: #1a7f4b; --ok-bg: #e8f5ee;\\n    --bad: #c62828; --bad-bg: #fdecec; --warn: #9a6400; --warn-bg: #fff6e0;\\n  }\\n  * { box-sizing: border-box; }\\n  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 \\\"Segoe UI\\\", Tahoma, Arial, sans-serif; }\\n  header { background: var(--card); border-bottom: 1px solid var(--line); padding: 14px 20px; display: flex; align-items: center; gap: 12px; }\\n  header h1 { font-size: 18px; margin: 0; }\\n  header .sub { color: var(--muted); font-size: 13px; }\\n  main { max-width: 1400px; margin: 0 auto; padding: 18px; }\\n  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }\\n  .hidden { display: none !important; }\\n  button { font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--card); padding: 9px 16px; cursor: pointer; }\\n  button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }\\n  button.success { background: var(--ok); color: #fff; border-color: var(--ok); font-weight: 600; }\\n  button:disabled { opacity: .5; cursor: not-allowed; }\\n  input { font: inherit; color: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; background: #fff; }\\n  input:focus { outline: 2px solid #b9cdf0; border-color: var(--brand); }\\n\\n  /* upload */\\n  .drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed #b8c2d6;\\n          border-radius: 12px; padding: 36px 16px; text-align: center; cursor: pointer; background: #fafbfd; }\\n  .drop:hover { border-color: var(--brand); }\\n  .drop .big { font-size: 17px; font-weight: 600; }\\n  .drop .small { color: var(--muted); font-size: 13px; }\\n  #preview { max-width: 100%; max-height: 360px; border-radius: 8px; margin-top: 12px; }\\n  .row-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; align-items: center; }\\n  .spinner { width: 18px; height: 18px; border: 3px solid #cbd5e6; border-top-color: var(--brand); border-radius: 50%; animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }\\n  @keyframes spin { to { transform: rotate(360deg); } }\\n\\n  /* review layout */\\n  .review { display: grid; grid-template-columns: minmax(280px, 38%) 1fr; gap: 16px; align-items: start; }\\n  .review > * { min-width: 0; }   /* let the table scroll inside its card instead of widening the page */\\n  @media (max-width: 900px) { .review { grid-template-columns: 1fr; } .photo-box { position: static !important; } .photo-scroll { max-height: 55vh; } main { padding: 10px; } }\\n  .photo-box { position: sticky; top: 12px; }\\n  .photo-scroll { max-height: 80vh; overflow: auto; border-radius: 8px; border: 1px solid var(--line); background: #222; }\\n  .photo-scroll img { display: block; width: 100%; cursor: zoom-in; }\\n  .photo-scroll.zoom img { width: 220%; cursor: zoom-out; }\\n  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }\\n\\n  .head-fields { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 12px; margin-bottom: 14px; }\\n  @media (max-width: 600px) { .head-fields { grid-template-columns: 1fr; } }\\n  label.f { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }\\n  .written { color: var(--muted); font-size: 12px; margin-top: 3px; }\\n\\n  .banner { border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 14px; }\\n  .banner.ok { background: var(--ok-bg); color: var(--ok); }\\n  .banner.bad { background: var(--bad-bg); color: var(--bad); }\\n  .banner ul { margin: 6px 0 0; padding-inline-start: 18px; }\\n  .notes { color: var(--muted); font-size: 13px; margin: -4px 0 12px; }\\n\\n  .table-wrap { overflow-x: auto; }\\n  table { width: 100%; border-collapse: collapse; min-width: 640px; }\\n  th { text-align: right; font-size: 13px; color: var(--muted); font-weight: 600; padding: 8px 6px; border-bottom: 2px solid var(--line); white-space: nowrap; }\\n  td { padding: 6px; border-bottom: 1px solid var(--line); vertical-align: top; }\\n  td.num { width: 110px; min-width: 80px; }\\n  td.item-cell { min-width: 220px; }\\n  td.idx { width: 32px; color: var(--muted); padding-top: 12px; }\\n  td.list { width: 90px; color: var(--muted); padding-top: 12px; font-size: 13px; white-space: nowrap; }\\n  td.del { width: 40px; }\\n  td.del button { padding: 4px 9px; color: var(--bad); }\\n  tr.bad td { background: var(--bad-bg); }\\n  tr.warn td { background: var(--warn-bg); }\\n  input.bad { border-color: var(--bad); background: #fff7f7; }\\n  input.warn { border-color: #e0a800; }\\n  .msg { font-size: 12px; margin-top: 4px; }\\n  .msg.bad { color: var(--bad); } .msg.warn { color: var(--warn); }\\n\\n  .totals { margin-top: 14px; display: flex; justify-content: flex-end; }\\n  .totals table { min-width: 0; width: auto; }\\n  .totals td { border: 0; padding: 4px 10px; }\\n  .totals td:first-child { color: var(--muted); }\\n  .totals .net td { font-size: 18px; font-weight: 700; color: var(--ink); border-top: 2px solid var(--line); padding-top: 8px; }\\n  .totals input { width: 120px; }\\n  .footer-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }\\n  #confirmMsg { font-size: 14px; }\\n  .done { text-align: center; padding: 40px 16px; }\\n  .done .tick { font-size: 46px; }\\n\\n  /* ---------- full-screen photo viewer ---------- */\\n  #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 50; overflow: auto; -webkit-overflow-scrolling: touch; }\\n  #viewer img { display: block; width: 100%; max-width: none; }\\n  #viewer.zoom img { width: 250%; }\\n  #viewer .close { position: fixed; top: 10px; left: 10px; z-index: 51; background: #fff; border-radius: 50%; width: 42px; height: 42px; font-size: 20px; padding: 0; }\\n  #viewer .zoomBtn { position: fixed; top: 10px; left: 62px; z-index: 51; background: #fff; border-radius: 21px; height: 42px; }\\n\\n  .mobile-hint { display: none; } .bar-net { display: none; } .del-txt { display: none; }\\n  /* ---------- phones ---------- */\\n  @media (max-width: 700px) {\\n    body { font-size: 15px; }\\n    input { font-size: 16px; padding: 10px; }            /* 16px stops iOS from zooming into fields */\\n    header { padding: 10px 14px; } header h1 { font-size: 16px; }\\n    main { padding: 8px; }\\n    .card { padding: 12px; border-radius: 12px; }\\n    .drop { padding: 22px 12px; }\\n    .step1 .shoot { width: 100%; aspect-ratio: 5 / 4; }\\n    .row-actions button, #analyzeBtn { width: 100%; padding: 14px; font-size: 16px; }\\n    .row-actions { flex-direction: column; align-items: stretch; }\\n\\n    /* photo: small strip, tap for full screen */\\n    .photo-box { padding: 8px; position: static !important; top: auto; }   /* sticky is for desktop only */\\n    .photo-scroll { max-height: 170px; overflow: hidden; }\\n    .photo-scroll img { cursor: pointer; height: 170px; object-fit: cover; object-position: center; }\\n    .photo-scroll.zoom img { width: 100%; }\\n\\n    .head-fields { grid-template-columns: 1fr 1fr; gap: 10px; }\\n    .head-fields > div:first-child { grid-column: 1 / -1; }\\n\\n    /* table -> one card per item */\\n    .table-wrap { overflow: visible; }\\n    table { min-width: 0; }\\n    table thead { display: none; }\\n    #rows, #rows tr, #rows td { display: block; }\\n    #rows tr { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; position: relative;\\n               border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #fff; }\\n    #rows tr.bad { border-color: #f1b5b5; } #rows tr.warn { border-color: #f0d48a; }\\n    #rows td { border: 0; padding: 0; background: transparent !important; width: auto; min-width: 0; }\\n    #rows td.idx { position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border-radius: 50%;\\n                   background: var(--bg); text-align: center; line-height: 24px; font-size: 12px; padding: 0; }\\n    #rows td.item-cell { grid-column: 1 / -1; padding-right: 32px; }\\n    #rows td.num::before { content: attr(data-label); display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }\\n    #rows td.list { grid-column: 1 / 3; padding-top: 2px; font-size: 12px; }\\n    #rows td.list::before { content: 'سعر القائمة: '; }\\n    #rows td.del { grid-column: 3; text-align: left; }\\n    #rows td.del button { padding: 4px 12px; } .del-txt { display: inline; }\\n    #rows tr.bad, #rows tr.warn { background: #fff; }\\n    #rows tr.bad { box-shadow: inset 4px 0 0 var(--bad); } #rows tr.warn { box-shadow: inset 4px 0 0 #e0a800; }\\n    #addRow { width: 100%; padding: 12px; }\\n\\n    .totals { justify-content: stretch; } .totals table { width: 100%; }\\n    .totals td:last-child { text-align: left; }\\n\\n    /* sticky bottom bar: net + confirm always visible */\\n    .footer-actions { position: sticky; bottom: 0; margin: 12px -12px -12px; padding: 10px 12px calc(10px + env(safe-area-inset-bottom));\\n                      background: #fff; border-top: 1px solid var(--line); box-shadow: 0 -4px 12px rgba(0,0,0,.06);\\n                      border-radius: 0 0 12px 12px; flex-wrap: nowrap; }\\n    .footer-actions > div { flex: 1; justify-content: flex-end; }\\n    #confirmBtn { flex: 1; padding: 13px; font-size: 16px; }\\n    #restart { padding: 13px 12px; white-space: nowrap; }\\n    #confirmMsg:empty { display: none; }\\n    .bar-net { display: block; font-size: 12px; color: var(--muted); line-height: 1.2; text-align: center; white-space: nowrap; }\\n    .bar-net b { display: block; font-size: 17px; color: var(--ink); }\\n    .hint { display: none; } .mobile-hint { display: block !important; }\\n    .done { padding: 28px 8px; } #again { width: 100%; padding: 14px; }\\n  }\\n  .cost { display: inline-block; font-size: 13px; color: #3b4a63; background: #eef3fb; border: 1px solid #d6e2f5;\\n          border-radius: 20px; padding: 4px 12px; margin: 0 0 12px; }\\n  /* ---------- suggestion list (works on every phone, unlike <datalist>) ---------- */\\n  #ac { position: absolute; z-index: 60; background: #fff; border: 1px solid var(--line); border-radius: 10px;\\n        box-shadow: 0 8px 24px rgba(0,0,0,.14); max-height: 260px; overflow-y: auto; -webkit-overflow-scrolling: touch; }\\n  #ac div { padding: 11px 12px; border-bottom: 1px solid #f0f2f5; cursor: pointer; font-size: 15px; }\\n  #ac div:last-child { border-bottom: 0; }\\n  #ac div.on, #ac div:hover { background: #eef3fb; }\\n  #ac .empty { color: var(--muted); cursor: default; }\\n  #ac mark { background: #fff1b8; color: inherit; padding: 0; }\\n  /* ---------- steps 1 & 2 ---------- */\\n  .steps { font-size: 13px; color: var(--muted); margin-bottom: 14px; }\\n  .steps b { display: inline-block; background: var(--brand); color: #fff; border-radius: 50%; width: 22px; height: 22px;\\n             text-align: center; line-height: 22px; font-size: 12px; margin-inline-end: 4px; }\\n  .steps span { margin: 0 6px; opacity: .6; }\\n  /* only the camera button, centred on the screen until a photo is chosen */\\n  .step1 { min-height: calc(100vh - 120px); min-height: calc(100dvh - 120px); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }\\n  .step1 .tips { width: min(420px, 100%); }\\n  .step1 .shoot { width: min(420px, 100%); aspect-ratio: 1 / 1; border-radius: 28px; }\\n  .step1 .shoot .cam { font-size: 72px; }\\n  .shoot { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; cursor: pointer;\\n           background: var(--brand); color: #fff; border-radius: 16px; padding: 46px 16px; text-align: center;\\n           box-shadow: 0 6px 18px rgba(31,95,191,.25); }\\n  .shoot:active { transform: scale(.99); }\\n  .shoot .cam { font-size: 54px; line-height: 1; }\\n  .shoot .big { font-size: 22px; font-weight: 700; }\\n  .shoot .small { font-size: 14px; opacity: .85; }\\n  .tips { margin: 18px 4px 0; padding-inline-start: 18px; color: var(--muted); font-size: 14px; line-height: 1.9; }\\n  #step2 { max-width: 760px; margin: 0 auto; }\\n  .thumb-row { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }\\n  .thumb-row #preview { width: 96px; height: 128px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); margin: 0; max-height: none; display: block; }\\n  .thumb-side { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; flex: 1; min-width: 0; }\\n  .bg-status { font-size: 14px; }\\n  #changePhoto { padding: 6px 12px; font-size: 14px; }\\n  #step2 .row-actions { margin-top: 18px; }\\n  /* ---------- review: short list + bottom sheet ---------- */\\n  .rv { min-width: 0; }\\n  .rv-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding: 12px; }\\n  .rv-head .who { font-weight: 700; font-size: 16px; } .rv-head .meta { font-size: 12px; color: var(--muted); }\\n  .rv-head button { padding: 6px 12px; font-size: 13px; }\\n  .banner { border-radius: 10px; padding: 9px 12px; font-size: 14px; margin-bottom: 8px; }\\n  .banner.ok { background: var(--ok-bg); color: var(--ok); } .banner.warn { background: var(--warn-bg); color: var(--warn); }\\n  .banner.bad { background: var(--bad-bg); color: var(--bad); }\\n  .group { font-size: 12px; color: var(--muted); margin: 12px 4px 6px; }\\n  .list { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }\\n  .list:empty { display: none; }\\n  .it { display: flex; align-items: center; gap: 10px; padding: 12px; border-bottom: 1px solid #f0f2f5; cursor: pointer; }\\n  .it:last-child { border-bottom: 0; } .it:active { background: #f6f8fb; }\\n  .it .n { width: 22px; height: 22px; border-radius: 50%; background: var(--bg); font-size: 11px; text-align: center; line-height: 22px; color: var(--muted); flex: none; }\\n  .it .main { flex: 1; min-width: 0; }\\n  .it .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\\n  .it .sub2 { font-size: 13px; color: var(--muted); }\\n  .it .why { font-size: 12px; color: var(--warn); } .it.bad .why { color: var(--bad); }\\n  .it .tot { font-weight: 700; white-space: nowrap; } .it .st { font-size: 16px; flex: none; }\\n  .it.warn { background: #fffaf0; box-shadow: inset -4px 0 0 #e0a800; } .it.bad { background: #fff7f7; box-shadow: inset -4px 0 0 var(--bad); }\\n  .totals-card { margin-top: 10px; padding: 10px 12px; font-size: 14px; }\\n  .totals-card > div { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; }\\n  .totals-card > div > span:first-child { color: var(--muted); }\\n  .totals-card .net-row { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 8px; }\\n  .totals-card .net-row span { color: var(--ink) !important; font-weight: 700; }\\n  .totals-card #net { width: 140px; font-weight: 700; font-size: 17px; text-align: left; }\\n  .rv-bar { position: sticky; bottom: 0; z-index: 20; margin-top: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px;\\n            box-shadow: 0 -4px 12px rgba(0,0,0,.06); padding: 10px; display: flex; gap: 10px; align-items: center; }\\n  .rv-bar #confirmBtn { flex: 1; padding: 13px; font-size: 16px; } .rv-bar #addRow { padding: 13px 12px; white-space: nowrap; }\\n  .bar-net { font-size: 12px; color: var(--muted); line-height: 1.2; text-align: center; white-space: nowrap; display: block !important; }\\n  .bar-net b { display: block; font-size: 17px; color: var(--ink); }\\n  .fab { display: none; position: fixed; left: 14px; bottom: 92px; z-index: 30; background: #1d2433; color: #fff; border: 0;\\n         border-radius: 24px; padding: 11px 16px; box-shadow: 0 6px 16px rgba(0,0,0,.25); font-weight: 600; }\\n  .dim { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 54; }\\n  .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 55; background: #fff; border-radius: 18px 18px 0 0;\\n           padding: 8px 14px calc(16px + env(safe-area-inset-bottom)); box-shadow: 0 -8px 30px rgba(0,0,0,.2);\\n           max-width: 640px; margin: 0 auto; max-height: 88vh; overflow-y: auto; }\\n  .grab { width: 42px; height: 5px; border-radius: 3px; background: #d5d9e0; margin: 4px auto 10px; }\\n  .sheet h3 { margin: 0 0 2px; font-size: 16px; }\\n  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 10px 0 6px; }\\n  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 6px; }\\n  .sheet .hintbox { border-radius: 8px; padding: 8px 10px; font-size: 13px; margin-top: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }\\n  .sheet .hintbox.warn { background: var(--warn-bg); color: var(--warn); } .sheet .hintbox.bad { background: var(--bad-bg); color: var(--bad); }\\n  .sheet .hintbox.info { background: #eef3fb; color: #3b4a63; }\\n  .sheet .hintbox button { padding: 4px 10px; font-size: 13px; flex: none; }\\n  .row2 { display: flex; gap: 8px; margin-top: 14px; } .row2 button { flex: 1; padding: 12px; }\\n  .danger { color: var(--bad); }\\n  #ac { z-index: 80 !important; } #viewer { z-index: 70 !important; }\\n  @media (max-width: 900px) {\\n    .review > .photo-box { display: none; }      /* phones/tablets: the photo opens from the floating button */\\n    .fab { display: block; bottom: 104px; }\\n    .rv-bar #addRow { width: auto !important; flex: none; padding: 13px 14px; }\\n    .rv-bar #confirmBtn { flex: 1 1 auto; min-width: 0; }\\n    .rv-bar .bar-net { flex: none; }\\n  }\\n  /* ---------- reading progress ---------- */\\n  .prog { margin-top: 2px; width: 100%; min-width: 180px; }\\n  .prog-top { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--muted); margin-bottom: 5px; }\\n  .prog-top b { color: var(--ink); font-weight: 600; }\\n  .prog-track { height: 8px; border-radius: 6px; background: #e6eaf1; overflow: hidden; }\\n  .prog-fill { height: 100%; width: 0; border-radius: 6px; background: var(--brand); transition: width .6s ease; }\\n  .prog.done .prog-fill { background: var(--ok); } .prog.fail .prog-fill { background: var(--bad); }\\n\\n  /* ================= batch page ================= */\\n  .ic { width: 1em; height: 1em; vertical-align: -0.15em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; margin-inline-end: 4px; flex: none; }\\n  .ic-c { color: #1f5fbf; }\\n  .ic-r { color: #5b6475; width: 1.2em; height: 1.2em; vertical-align: -0.28em; }\\n  #listView { max-width: 760px; margin: 0 auto; padding-bottom: 8px; }\\n  .filters { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }\\n  .dd { position: relative; }\\n  .dl { display: block; font-size: 11px; color: var(--muted); margin: 0 4px 3px; }\\n  .dbtn { width: 100%; display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 14px; font-weight: 600; text-align: right; }\\n  .dbtn .lbl { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\\n  .dbtn small { color: var(--muted); font-weight: 400; } .dbtn i { font-style: normal; color: var(--muted); font-size: 12px; }\\n  .dd.open .dbtn { border-color: #9dbbe6; box-shadow: 0 0 0 3px #e6effb; }\\n  .menu { position: absolute; top: 100%; margin-top: 4px; right: 0; left: 0; background: #fff; border: 1px solid var(--line); border-radius: 10px;\\n          box-shadow: 0 10px 24px rgba(0,0,0,.14); z-index: 40; overflow: hidden; max-height: 320px; overflow-y: auto; }\\n  .menu div { padding: 10px 12px; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px solid #f1f3f6; cursor: pointer; }\\n  .menu div:last-child { border-bottom: 0; } .menu div small { color: var(--muted); } .menu div.on { background: #eef3fb; color: #1f5fbf; font-weight: 600; }\\n  .sumline { font-size: 12px; color: var(--muted); margin: 0 4px 8px; }\\n  .sumline b { color: var(--ink); } .sumline .g b { color: var(--ok); } .sumline .y b { color: var(--warn); } .sumline .bl b { color: #1f5fbf; }\\n  .allbar { display: flex; justify-content: space-between; align-items: center; margin: 0 2px 8px; font-size: 12px; color: var(--muted); }\\n  .allbar button { font-size: 12px; padding: 5px 10px; border-radius: 16px; }\\n  .icard { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; }\\n  .icard.ready { box-shadow: inset -4px 0 0 var(--ok); } .icard.warn { box-shadow: inset -4px 0 0 #e0a800; }\\n  .icard.bad { box-shadow: inset -4px 0 0 var(--bad); } .icard.reading { box-shadow: inset -4px 0 0 #1f5fbf; } .icard.uploaded { opacity: .7; box-shadow: inset -4px 0 0 #9aa1ad; }\\n  .ch { display: flex; gap: 10px; align-items: center; }\\n  .ch .thumb { width: 46px; height: 60px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); flex: none; background: #eee; }\\n  .ch .who { flex: 1; min-width: 0; }\\n  .ch .who b { font-size: 16px; display: flex; align-items: center; gap: 2px; white-space: nowrap; overflow: hidden; }\\n  .ch .who b.none { color: var(--muted); font-weight: 600; font-size: 14px; }\\n  .ch .who .rep { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 2px; }\\n  .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; border-radius: 12px; padding: 2px 9px; white-space: nowrap; flex: none; }\\n  .c-read { background: #eef3fb; color: #1f5fbf; } .c-ok { background: var(--ok-bg); color: var(--ok); } .c-warn { background: var(--warn-bg); color: var(--warn); }\\n  .c-bad { background: var(--bad-bg); color: var(--bad); } .c-done { background: #eceff3; color: #4b5565; }\\n  .pbar { height: 5px; border-radius: 4px; background: #e6eaf1; overflow: hidden; margin-top: 8px; }\\n  .pbar i { display: block; height: 100%; background: #1f5fbf; border-radius: 4px; transition: width .8s ease; }\\n  table.items { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; color: #4b5565; min-width: 0; }\\n  table.items th { font-size: 10.5px; color: #9aa1ad; font-weight: 600; text-align: right; padding: 2px 2px 3px; border-bottom: 1px solid var(--line); background: none; }\\n  table.items td { padding: 3px 2px; border-bottom: 1px solid #f4f6f8; white-space: nowrap; line-height: 1.5; background: none !important; }\\n  table.items td:first-child { white-space: normal; width: 46%; }\\n  table.items .num { text-align: left; font-variant-numeric: tabular-nums; }\\n  table.items tr.w td { background: #fffaf0 !important; } table.items tr.w td:first-child { box-shadow: inset -3px 0 0 #e0a800; }\\n  table.items tr.b td { background: #fff5f5 !important; } table.items tr.b td:first-child { box-shadow: inset -3px 0 0 var(--bad); }\\n  .disc { display: flex; justify-content: flex-end; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 6px; }\\n  .disc b { color: var(--warn); font-weight: 600; }\\n  .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 13px; }\\n  .foot b { font-size: 16px; }\\n  .toggle { font-size: 12.5px; font-weight: 600; color: #245a9e; background: #eaf2fc; border: 1px solid #c9dcf3; border-radius: 16px; padding: 5px 12px; }\\n  .toggle:active { background: #dbe9fa; }\\n  .retry { font-size: 12.5px; padding: 5px 12px; border-radius: 16px; }\\n  .list-bar { position: sticky; bottom: 0; z-index: 20; margin-top: 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px;\\n              box-shadow: 0 -4px 12px rgba(0,0,0,.06); padding: 10px; display: flex; gap: 10px; }\\n  .list-bar #confirmReady { flex: 1; padding: 13px; font-size: 16px; } .list-bar #addPhotos { padding: 13px 14px; white-space: nowrap; }\\n  .empty-list { text-align: center; color: var(--muted); padding: 30px 10px; font-size: 14px; }\\n  .rv-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }\\n  .rv-nav button { padding: 7px 12px; font-size: 13px; } .rv-nav .pn { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }\\n  .rv-nav .pn button { padding: 6px 10px; }\\n  .toast { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 90; background: #1d2433; color: #fff; border-radius: 12px;\\n           padding: 10px 16px; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.25); max-width: 92vw; text-align: center; }\\n  #addPhotosTop { padding: 6px 12px; font-size: 13px; }\\n  header { justify-content: space-between; }\\n.ring{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:ringspin .8s linear infinite;vertical-align:-2px;margin-inline-end:6px}\\n@keyframes ringspin{to{transform:rotate(360deg)}}\\n#newBatch{display:block;margin:18px auto 6px;background:none;border:none;color:var(--muted);font-size:13px;text-decoration:underline;cursor:pointer;font-family:inherit}\\nbody.restoring #uploadView{visibility:hidden}\\n</style>\\n</head>\\n<body class=\\\"restoring\\\">\\n<header>\\n  <div>\\n    <h1 id=\\\"title\\\">قراءة فواتير المبيعات</h1>\\n    <div id=\\\"subtitle\\\" class=\\\"sub\\\">a wholesale distribution company</div>\\n  </div>\\n  <button id=\\\"addPhotosTop\\\" class=\\\"hidden\\\" type=\\\"button\\\">+ صور</button>\\n</header>\\n\\n<main>\\n  <!-- step 1: camera only -->\\n  <section id=\\\"uploadView\\\">\\n    <div id=\\\"step1\\\" class=\\\"step1\\\">\\n      <label class=\\\"shoot\\\" for=\\\"file\\\">\\n        <span class=\\\"cam\\\">📷</span>\\n        <span class=\\\"big\\\">صوّر الفواتير</span>\\n        <span class=\\\"small\\\">تقدر تختار أكتر من صورة مرة واحدة</span>\\n      </label>\\n      <ul class=\\\"tips\\\">\\n        <li>فاتورة واحدة بس في كل صورة، ومالية الصورة</li>\\n        <li>صوّر من فوق مباشرة والفاتورة على حاجة مستوية</li>\\n        <li>إضاءة كويسة، من غير ظل ومن غير فلاش</li>\\n        <li>خلّي الفاتورة كلها باينة لحد الهامش اللي تحت</li>\\n      </ul>\\n    </div>\\n  </section>\\n  <input id=\\\"file\\\" type=\\\"file\\\" accept=\\\"image/*\\\" multiple class=\\\"hidden\\\">\\n\\n  <!-- step 2: all invoices -->\\n  <section id=\\\"listView\\\" class=\\\"hidden\\\">\\n    <div class=\\\"filters\\\">\\n      <div class=\\\"dd\\\" id=\\\"ddStatus\\\"><span class=\\\"dl\\\">الحالة</span><button class=\\\"dbtn\\\" type=\\\"button\\\"><span class=\\\"lbl\\\"></span><small></small><i>▾</i></button><div class=\\\"menu hidden\\\"></div></div>\\n      <div class=\\\"dd\\\" id=\\\"ddRep\\\"><span class=\\\"dl\\\">المندوب</span><button class=\\\"dbtn\\\" type=\\\"button\\\"><span class=\\\"lbl\\\"></span><small></small><i>▾</i></button><div class=\\\"menu hidden\\\"></div></div>\\n    </div>\\n    <div id=\\\"sumline\\\" class=\\\"sumline\\\"></div>\\n    <div class=\\\"allbar\\\"><span>دوس على الفاتورة للتعديل</span><button id=\\\"toggleAll\\\" type=\\\"button\\\"></button></div>\\n    <div id=\\\"cards\\\"></div>\\n    <div class=\\\"list-bar\\\">\\n      <button id=\\\"addPhotos\\\" type=\\\"button\\\">إضافة صور</button>\\n      <button id=\\\"confirmReady\\\" class=\\\"success\\\" type=\\\"button\\\"></button>\\n    </div>\\n    <button id=\\\"newBatch\\\" type=\\\"button\\\">🗑 ابدأ دفعة جديدة</button>\\n    <div id=\\\"listMsg\\\" class=\\\"msg\\\" style=\\\"text-align:center\\\"></div>\\n  </section>\\n\\n  <!-- step 3: one invoice -->\\n  <section id=\\\"reviewView\\\" class=\\\"hidden\\\">\\n    <div class=\\\"rv-nav\\\">\\n      <button id=\\\"backList\\\" type=\\\"button\\\">→ الفواتير</button>\\n      <div class=\\\"pn\\\"><button id=\\\"prevInv\\\" type=\\\"button\\\">‹ السابقة</button><span id=\\\"posInv\\\"></span><button id=\\\"nextInv\\\" type=\\\"button\\\">التالية ›</button></div>\\n    </div>\\n    <div class=\\\"review\\\">\\n      <div class=\\\"photo-box card\\\">\\n        <div id=\\\"photoScroll\\\" class=\\\"photo-scroll\\\"><img id=\\\"photo\\\" alt=\\\"الفاتورة\\\"></div>\\n        <div class=\\\"hint\\\">دوس على الصورة للتكبير</div>\\n      </div>\\n      <div class=\\\"rv\\\">\\n        <div class=\\\"rv-head card\\\">\\n          <div><div id=\\\"hCustomer\\\" class=\\\"who\\\"></div><div id=\\\"hMeta\\\" class=\\\"meta\\\"></div></div>\\n          <button id=\\\"editHead\\\" type=\\\"button\\\">تعديل</button>\\n        </div>\\n        <div id=\\\"banner\\\" class=\\\"banner\\\"></div>\\n        <div id=\\\"notes\\\" class=\\\"notes\\\"></div>\\n        <div id=\\\"cost\\\" class=\\\"cost hidden\\\"></div>\\n        <div id=\\\"probTitle\\\" class=\\\"group\\\">محتاج مراجعة</div>\\n        <div id=\\\"probList\\\" class=\\\"list\\\"></div>\\n        <div id=\\\"okTitle\\\" class=\\\"group\\\"></div>\\n        <div id=\\\"okList\\\" class=\\\"list\\\"></div>\\n        <div class=\\\"totals-card card\\\">\\n          <div><span>المجموع</span><b id=\\\"sum\\\">0</b></div>\\n          <div><span>الخصم</span><span id=\\\"discountCell\\\">0</span></div>\\n          <div class=\\\"net-row\\\"><span>الصافي بعد الخصم</span><input id=\\\"net\\\" type=\\\"number\\\" step=\\\"any\\\" min=\\\"0\\\" inputmode=\\\"decimal\\\"></div>\\n          <div id=\\\"netMsg\\\" class=\\\"msg\\\"></div>\\n        </div>\\n        <div class=\\\"rv-bar\\\">\\n          <button id=\\\"addRow\\\" type=\\\"button\\\">+ صنف</button>\\n          <div class=\\\"bar-net\\\">الصافي<b id=\\\"barNet\\\">0</b></div>\\n          <button id=\\\"confirmBtn\\\" class=\\\"success\\\">✔ أكّد ورجّع للفواتير</button>\\n        </div>\\n        <div id=\\\"confirmMsg\\\" class=\\\"msg\\\" style=\\\"text-align:center\\\"></div>\\n      </div>\\n    </div>\\n    <button id=\\\"photoFab\\\" class=\\\"fab\\\" type=\\\"button\\\">📷 الصورة</button>\\n  </section>\\n</main>\\n\\n<div id=\\\"viewer\\\" class=\\\"hidden\\\"><button class=\\\"close\\\" type=\\\"button\\\">✕</button><button class=\\\"zoomBtn\\\" type=\\\"button\\\">🔍 تكبير</button><img id=\\\"viewerImg\\\" alt=\\\"\\\"></div>\\n<div id=\\\"dim\\\" class=\\\"dim hidden\\\"></div>\\n<div id=\\\"sheet\\\" class=\\\"sheet hidden\\\">\\n  <div class=\\\"grab\\\"></div>\\n  <h3 id=\\\"sTitle\\\"></h3><div id=\\\"sWritten\\\" class=\\\"written\\\"></div>\\n  <label class=\\\"f\\\" for=\\\"sItem\\\">الصنف</label>\\n  <input id=\\\"sItem\\\" autocomplete=\\\"off\\\" data-ac=\\\"catalog\\\" placeholder=\\\"اكتب أي جزء من اسم الصنف\\\">\\n  <div class=\\\"g3\\\">\\n    <div><label class=\\\"f\\\" for=\\\"sQty\\\">الكمية</label><input id=\\\"sQty\\\" type=\\\"number\\\" step=\\\"any\\\" min=\\\"0\\\" inputmode=\\\"decimal\\\"></div>\\n    <div><label class=\\\"f\\\" for=\\\"sPrice\\\">السعر</label><input id=\\\"sPrice\\\" type=\\\"number\\\" step=\\\"any\\\" min=\\\"0\\\" inputmode=\\\"decimal\\\"></div>\\n    <div><label class=\\\"f\\\" for=\\\"sTotal\\\">الإجمالي</label><input id=\\\"sTotal\\\" type=\\\"number\\\" step=\\\"any\\\" min=\\\"0\\\" inputmode=\\\"decimal\\\"></div>\\n  </div>\\n  <div id=\\\"sList\\\" class=\\\"written\\\"></div>\\n  <div id=\\\"sMsgs\\\"></div>\\n  <div class=\\\"row2\\\"><button id=\\\"sDelete\\\" type=\\\"button\\\" class=\\\"danger\\\">حذف السطر</button><button id=\\\"sDone\\\" type=\\\"button\\\" class=\\\"primary\\\">تم ✓</button></div>\\n</div>\\n<div id=\\\"hsheet\\\" class=\\\"sheet hidden\\\">\\n  <div class=\\\"grab\\\"></div>\\n  <h3>بيانات الفاتورة</h3>\\n  <label class=\\\"f\\\" for=\\\"hsCustomer\\\">العميل *</label>\\n  <input id=\\\"hsCustomer\\\" autocomplete=\\\"off\\\" data-ac=\\\"customers\\\" placeholder=\\\"اكتب أي جزء من اسم العميل واختار\\\">\\n  <div id=\\\"hsCustomerMsg\\\" class=\\\"msg\\\"></div>\\n  <div class=\\\"g2\\\">\\n    <div><label class=\\\"f\\\" for=\\\"hsRep\\\">المندوب</label><input id=\\\"hsRep\\\" autocomplete=\\\"off\\\" data-ac=\\\"reps\\\"></div>\\n    <div><label class=\\\"f\\\" for=\\\"hsDate\\\">التاريخ</label><input id=\\\"hsDate\\\" type=\\\"date\\\"></div>\\n  </div>\\n  <div class=\\\"row2\\\"><button id=\\\"hsCancel\\\" type=\\\"button\\\">إلغاء</button><button id=\\\"hsDone\\\" type=\\\"button\\\" class=\\\"primary\\\">تم ✓</button></div>\\n</div>\\n<div id=\\\"ac\\\" class=\\\"hidden\\\"></div>\\n<div id=\\\"toast\\\" class=\\\"toast hidden\\\"></div>\\n\\n<script>\\nconst CATALOG = __CATALOG__;      // [{code, name, price}]\\nconst CUSTOMERS = __CUSTOMERS__;  // [{id, name}]\\nconst MAX_DISCOUNT = 15, MAX_ABOVE = 2.5, MAX_INVOICE_DISCOUNT = 20;   // same rules as the Parse node\\nconst MAX_PARALLEL = 10;          // invoices read at the same time — raise/lower to fit your Gemini rate limit\\n\\nconst $ = (id) => document.getElementById(id);\\nconst byName = new Map(CATALOG.map(c => [c.name, c]));\\nconst custByName = new Map(CUSTOMERS.map(c => [c.name, c]));\\nconst fmt = (n) => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });\\nconst num = (v) => { if (v === null || v === undefined || v === '') return null; const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : null; };\\nconst round2 = (n) => Math.round(n * 100) / 100;\\nconst esc = (t) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');\\nconst today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };\\nconst things = (n) => n === 1 ? 'حاجة واحدة' : n === 2 ? 'حاجتين' : n <= 10 ? `${n} حاجات` : `${n} حاجة`;\\nconst countItems = (n) => n === 1 ? 'صنف واحد' : n === 2 ? 'صنفين' : n <= 10 ? `${n} أصناف` : `${n} صنف`;\\nconst money = (v) => v < 1 ? `${Math.round(v * 100)} قرش` : `${fmt(v)} جنيه`;\\nconst IC_STORE = '<svg class=\\\"ic ic-c\\\" viewBox=\\\"0 0 24 24\\\"><path d=\\\"M3 9l1.5-5h15L21 9\\\"/><path d=\\\"M3 9h18v1.5a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z\\\"/><path d=\\\"M5 12v8h14v-8\\\"/><path d=\\\"M10 20v-5h4v5\\\"/></svg>';\\nconst IC_TRUCK = '<svg class=\\\"ic ic-r\\\" viewBox=\\\"0 0 24 24\\\"><path d=\\\"M3 6h11v9H3z\\\"/><path d=\\\"M14 9h4l3 3v3h-7\\\"/><circle cx=\\\"7\\\" cy=\\\"17.5\\\" r=\\\"1.8\\\"/><circle cx=\\\"17\\\" cy=\\\"17.5\\\" r=\\\"1.8\\\"/></svg>';\\n\\n// ======================= suggestion list (customers / items / reps) =======================\\nconst AR = (s) => String(s || '').replace(/[ً-ْٰـ]/g, '').replace(/[أإآٱ]/g, 'ا')\\n  .replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').toLowerCase().replace(/\\\\s+/g, ' ').trim();\\nconst AC_SOURCES = {\\n  customers: CUSTOMERS.map(c => ({ label: c.name, key: AR(c.name) })),\\n  catalog: CATALOG.map(c => ({ label: c.name, key: AR(c.name) })),\\n  reps: [],   // filled from the reps seen on the invoices\\n};\\nconst acBox = $('ac'); let acInput = null, acItems = [], acOn = -1;\\nfunction acSearch(source, q) {\\n  const words = AR(q).split(' ').filter(Boolean);\\n  if (!words.length) return [];\\n  return AC_SOURCES[source].filter(o => words.every(w => o.key.includes(w)))\\n    .sort((a, b) => (b.key.startsWith(words[0]) - a.key.startsWith(words[0])) || a.key.length - b.key.length).slice(0, 40);\\n}\\nfunction acShow(input) {\\n  acInput = input; acItems = acSearch(input.dataset.ac, input.value); acOn = -1;\\n  if (!input.value.trim()) { acHide(); return; }\\n  const typed = AR(input.value);\\n  if (acItems.some(o => o.key === typed) && !acItems.some(o => o.key !== typed && o.key.startsWith(typed))) { acHide(); return; }\\n  if (!acItems.length && input.dataset.ac === 'reps') { acHide(); return; }   // a new rep name is allowed\\n  acBox.innerHTML = acItems.length ? acItems.map((o, k) => `<div data-k=\\\"${k}\\\">${esc(o.label)}</div>`).join('')\\n    : '<div class=\\\"empty\\\">مفيش نتايج — جرّب جزء تاني من الاسم</div>';\\n  const r = input.getBoundingClientRect();\\n  acBox.style.top = (r.bottom + window.scrollY + 4) + 'px'; acBox.style.left = (r.left + window.scrollX) + 'px';\\n  acBox.style.width = Math.max(r.width, 220) + 'px'; acBox.classList.remove('hidden');\\n}\\nfunction acHide() { acBox.classList.add('hidden'); acItems = []; acOn = -1; }\\nfunction acPick(k) {\\n  const o = acItems[k]; if (!o || !acInput) return;\\n  acInput.value = o.label; const inp = acInput; acHide();\\n  inp.dataset.picked = '1'; inp.dispatchEvent(new Event('input', { bubbles: true }));\\n}\\nacBox.addEventListener('pointerdown', (e) => { const d = e.target.closest('[data-k]'); if (d) { e.preventDefault(); acPick(+d.dataset.k); } });\\ndocument.addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.ac && !e.target.dataset.picked) acShow(e.target); if (e.target.dataset) delete e.target.dataset.picked; });\\ndocument.addEventListener('focusin', (e) => { if (e.target.dataset && e.target.dataset.ac && e.target.value) acShow(e.target); });\\ndocument.addEventListener('focusout', (e) => { if (e.target === acInput) setTimeout(acHide, 150); });\\ndocument.addEventListener('keydown', (e) => {\\n  if (acBox.classList.contains('hidden') || !acItems.length) return;\\n  const rows = acBox.querySelectorAll('[data-k]');\\n  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {\\n    e.preventDefault(); acOn = (acOn + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;\\n    rows.forEach((r, k) => r.classList.toggle('on', k === acOn)); rows[acOn].scrollIntoView({ block: 'nearest' });\\n  } else if (e.key === 'Enter') { e.preventDefault(); acPick(acOn >= 0 ? acOn : 0); } else if (e.key === 'Escape') acHide();\\n});\\n\\n// ======================= invoices =======================\\nconst INV = [];          // every invoice in this batch\\nlet seq = 0, invSeq = 0;\\nconst avgSecs = () => { try { return Math.min(120, Math.max(8, +localStorage.getItem('invoice_avg_secs') || 30)); } catch (e) { return 30; } };\\nconst saveSecs = (s) => { try { localStorage.setItem('invoice_avg_secs', String(Math.round((avgSecs() * 2 + s) / 3))); } catch (e) {} };\\n\\nfunction newSession() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }\\n\\n// photos chosen -> each one is resized and queued for reading\\n$('file').addEventListener('change', async (e) => {\\n  const files = [...e.target.files]; e.target.value = '';\\n  if (!files.length) return;\\n  showList();\\n  for (const f of files) {\\n    const inv = { id: ++invSeq, n: INV.length + 1, img: null, session: newSession(), state: 'queued', open: null, uploaded: false, st: null };\\n    INV.push(inv); renderList();\\n    inv.img = await resize(f); saveImg(inv);\\n    pump();\\n  }\\n});\\nfunction resize(f) {\\n  return new Promise((resolve) => {\\n    const img = new Image();\\n    img.onload = () => {\\n      const MAX = 2400, k = Math.min(1, MAX / Math.max(img.width, img.height));\\n      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);\\n      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);\\n      URL.revokeObjectURL(img.src); resolve(c.toDataURL('image/jpeg', 0.92));\\n    };\\n    img.onerror = () => resolve(null);\\n    img.src = URL.createObjectURL(f);\\n  });\\n}\\n\\n// at most MAX_PARALLEL readings at the same time; the rest wait their turn\\nfunction pump() {\\n  const active = INV.filter(i => i.state === 'reading').length;\\n  let free = MAX_PARALLEL - active;\\n  for (const inv of INV) {\\n    if (free <= 0) break;\\n    if (inv.state === 'queued' && inv.img) { startReading(inv); free--; }\\n  }\\n  renderList();\\n}\\nasync function startReading(inv) {\\n  inv.state = 'reading'; inv.started = inv.started || Date.now(); inv.error = null; saveSoon();\\n  try {\\n    // 1) send the photo — n8n answers at once with a job id and keeps reading in the background\\n    //    (after a reload the photo was already sent: just keep asking for the result)\\n    if (!inv.sent) {\\n      const res = await fetch('invoice-start', {\\n        method: 'POST', headers: { 'Content-Type': 'application/json' },\\n        body: JSON.stringify({ image_b64: inv.img.split(',')[1], mime: 'image/jpeg', customer_later: true, session_id: inv.session, date: today(), sales_rep: '' }),\\n      });\\n      if (!res.ok) throw new Error('HTTP ' + res.status);\\n      inv.sent = true; saveSoon();\\n    }\\n    // 2) ask \\\"done yet?\\\" every few seconds (each ask is a short request, so no Cloudflare 100 s limit)\\n    const r = await waitResult(inv.session);\\n    if (!r || r.status === 'error') throw new Error('الموديل مرجعش نتيجة');\\n    inv.result = r; inv.st = stateFrom(r); inv.state = 'done';\\n    // add this reading to the invoice's running cost (retries included)\\n    const c = inv.costSum = inv.costSum || { cost_usd: 0, cost_egp: 0, tokens: 0, readings: 0 };\\n    c.readings += 1;\\n    if (r.cost) { c.cost_usd += r.cost.cost_usd || 0; c.cost_egp = +(c.cost_egp + (r.cost.cost_egp || 0)).toFixed(2); c.tokens += r.cost.tokens || 0; }\\n    inv.st.costTotal = { ...c };\\n    inv.secs = Math.round((Date.now() - inv.started) / 1000); saveSecs(inv.secs);\\n    if (inv.st.rep && !AC_SOURCES.reps.some(o => o.label === inv.st.rep)) AC_SOURCES.reps.push({ label: inv.st.rep, key: AR(inv.st.rep) });\\n  } catch (err) {\\n    // busy / rate-limited -> try again by itself once, after a short wait\\n    if (!inv.autoRetried) { inv.autoRetried = true; inv.state = 'queued'; inv.sent = false; inv.started = null; saveSoon(); inv.img && setTimeout(pump, 8000); return; }\\n    inv.state = 'error';\\n    inv.error = /HTTP 5|HTTP 4|Failed to fetch|NetworkError/i.test(err.message) ? 'حصلت مشكلة في الاتصال أو في الموديل' : err.message;\\n  }\\n  inv.started = null; saveSoon();\\n  if (cur === inv) openInv(inv);\\n  pump();\\n}\\nconst POLL_FIRST = 15000, POLL_EVERY = 15000, POLL_GIVE_UP = 5 * 60000;\\nasync function waitResult(id) {\\n  const t0 = Date.now(); let wait = Math.max(POLL_FIRST, avgSecs() * 700), misses = 0;   // first ask a bit before the usual reading time\\n  while (Date.now() - t0 < POLL_GIVE_UP) {\\n    await new Promise(ok => setTimeout(ok, wait)); wait = POLL_EVERY;\\n    try {\\n      const res = await fetch('invoice-result?id=' + encodeURIComponent(id), { cache: 'no-store' });\\n      if (!res.ok) throw new Error('HTTP ' + res.status);\\n      const r = await res.json(); misses = 0;\\n      if (r && r.status !== 'reading') return r;\\n    } catch (e) { if (++misses >= 5) throw e; }   // a few failed asks in a row (no connection) -> give up\\n  }\\n  throw new Error('القراءة خدت أكتر من 5 دقايق');\\n}\\nfunction stateFrom(r) {\\n  const rows = (r.items || []).map(it => {\\n    const total = it.total ?? (it.qty != null && it.price != null ? round2(it.qty * it.price) : null);\\n    return { id: ++seq, written: it.written_name || '', cat: byName.get(it.item_name) || null, qty: it.qty ?? null, price: it.price ?? null,\\n             total, auto: !!it.auto_picked, learned: !!it.learned, suggestion: it.suggestion || null, byPrice: !!it.by_price, options: it.options || [] };\\n  });\\n  const lines = rows.reduce((s, x) => s + (x.total || 0), 0);\\n  const net = r.after_discount ?? (r.discount ? round2(lines - r.discount) : null);\\n  return { rows, customer: custByName.get(r.customer_name) ? r.customer_name : '', customerSuggested: !!custByName.get(r.customer_name),\\n    customerWritten: r.customer_written || '', rep: (r.sales_rep_written || '').trim(), date: r.date_read || today(),\\n    net: net ?? '', netTouched: net != null, invoiceIssues: r.invoice_issues || [], notes: r.notes || [], margin: r.margin_text || '',\\n    cost: r.cost || null, costTotal: r.cost_total || null };\\n}\\n\\n// ----- checks (same rules as before, no DOM) -----\\n// qty × price ≠ total: which number is most likely misread? (the total is taken as written)\\nfunction fixOf(row) {\\n  const { qty, price, total } = row; if (!qty || !price || total == null) return null;\\n  if (row.suggestion && Math.abs(row.suggestion.qty * row.suggestion.price - total) < 1)\\n    return { qty: row.suggestion.qty, price: row.suggestion.price, field: row.suggestion.qty !== qty ? 'qty' : 'price' };\\n  const q = total / price, p = total / qty;\\n  const qOk = Math.abs(q - Math.round(q)) < 0.01 && q > 0;\\n  const near = (x) => row.cat && Math.abs(x - row.cat.price) / row.cat.price;\\n  // price close to the list price -> the quantity is the misread one; otherwise the price\\n  if (qOk && (!row.cat || near(price) <= near(p))) return { qty: Math.round(q), price, field: 'qty' };\\n  if (p > 0) return { qty, price: round2(p), field: 'price' };\\n  return null;\\n}\\nfunction check(row) {\\n  const m = [];\\n  if (!row.cat) m.push(['bad', row.written ? `\\\"${row.written}\\\" مش في القائمة — اختار الصنف` : 'اختار الصنف']);\\n  if (row.qty == null || row.qty <= 0) m.push(['bad', 'الكمية ناقصة']);\\n  if (row.price == null) m.push(['bad', 'السعر ناقص']);\\n  if (row.qty != null && row.price != null && row.total != null && Math.abs(row.qty * row.price - row.total) > Math.max(1, row.total * 0.005)) {\\n    const f = fixOf(row);\\n    m.push(['bad', f ? `الصح غالبًا: ${fmt(f.qty)} × ${fmt(f.price)} = ${fmt(row.total)} — مكتوب: ${f.field === 'qty' ? 'الكمية ' + fmt(row.qty) : 'السعر ' + fmt(row.price)}`\\n      : `${fmt(row.qty)} × ${fmt(row.price)} = ${fmt(row.qty * row.price)} مش ${fmt(row.total)}`]);\\n  }\\n  if (row.cat && row.auto && row.byPrice) m.push(['warn', `الاسم \\\"${row.written}\\\" مش واضح — اختارت من السعر والحجم (فيه ${row.options.length} أصناف بنفس السعر) — اتأكد منه`]);\\n  else if (row.cat && row.auto) m.push(['warn', `اختارت أقرب صنف للمكتوب${row.written ? ` \\\"${row.written}\\\"` : ''} — اتأكد منه`]);\\n  if (row.cat && row.price != null) {\\n    const d = (row.price - row.cat.price) / row.cat.price * 100;\\n    if (d > MAX_ABOVE) m.push(['warn', `أعلى من سعر القائمة (${fmt(row.cat.price)}) بـ ${d.toFixed(0)}%`]);\\n    else if (d < -MAX_DISCOUNT) m.push(['warn', `أقل ${(-d).toFixed(0)}% من سعر القائمة (${fmt(row.cat.price)})`]);\\n    else if (d < -0.5) m.push(['info', `أقل ${(-d).toFixed(1)}%`]);\\n  }\\n  if (row.cat && row.learned) m.push(['info', '🧠 اتعرف من تصحيح سابق']);\\n  const level = m.some(x => x[0] === 'bad') ? 'bad' : m.some(x => x[0] === 'warn') ? 'warn' : '';\\n  return { level, msgs: m };\\n}\\nfunction totalsOf(st) {\\n  const sum = round2(st.rows.reduce((s, r) => s + (r.total || 0), 0));\\n  const net = st.netTouched ? (num(st.net) ?? sum) : sum;\\n  return { sum, net, disc: round2(sum - net), pct: sum ? (sum - net) / sum * 100 : 0 };\\n}\\nfunction evaluate(st) {\\n  let errors = 0, warnings = 0;\\n  st.rows.forEach(r => { r._c = check(r); if (r._c.level === 'bad') errors++; else if (r._c.level === 'warn') warnings++; });\\n  const t = totalsOf(st);\\n  const cust = custByName.get(st.customer);\\n  if (t.net > t.sum + 0.01) errors++; else if (t.pct > MAX_INVOICE_DISCOUNT) warnings++;\\n  if (!cust) errors++;\\n  if (!st.date) errors++;\\n  if (!st.rows.length) errors++;\\n  warnings += st.invoiceIssues.length;\\n  return { errors, warnings, t, cust };\\n}\\n// what the list shows for an invoice\\nfunction statusOf(inv) {\\n  if (inv.uploaded) return 'uploaded';\\n  if (inv.state === 'queued' || inv.state === 'reading') return 'reading';\\n  if (inv.state === 'error') return 'bad';\\n  const v = evaluate(inv.st);\\n  return v.errors ? 'bad' : v.warnings ? 'warn' : 'ready';\\n}\\nconst isReview = (s) => s === 'warn' || s === 'bad';\\n\\n// ======================= list view =======================\\nconst F = { status: 'all', rep: '__all' };\\nconst STATUS_OPTS = [['all', 'الكل'], ['ready', 'جاهزة'], ['review', 'محتاج مراجعة'], ['reading', 'بتتقري'], ['uploaded', 'اترفعت']];\\nconst repOf = (inv) => (inv.st && inv.st.rep) || '';\\nconst matchStatus = (inv, s = F.status) => { const k = statusOf(inv); return s === 'all' || (s === 'review' ? isReview(k) : k === s); };\\nconst matchRep = (inv, r = F.rep) => r === '__all' || repOf(inv) === r;\\nconst visible = () => INV.filter(i => matchStatus(i) && matchRep(i));\\n\\nfunction showList() {\\n  $('uploadView').classList.add('hidden'); $('reviewView').classList.add('hidden'); $('listView').classList.remove('hidden');\\n  $('addPhotosTop').classList.remove('hidden'); $('title').textContent = 'الفواتير'; cur = null; closeSheets(); renderList();\\n}\\nfunction renderDropdowns() {\\n  const pool = INV.filter(i => matchRep(i));\\n  const sOpts = STATUS_OPTS.map(([k, l]) => [k, l, pool.filter(i => matchStatus(i, k)).length]);\\n  const reps = [...new Set(INV.map(repOf).filter(Boolean))].sort();\\n  const poolR = INV.filter(i => matchStatus(i));\\n  const rOpts = [['__all', 'كل المندوبين', poolR.length], ...reps.map(r => [r, r, poolR.filter(i => repOf(i) === r).length])];\\n  if (INV.some(i => i.st && !repOf(i))) rOpts.push(['', '❓ بدون مندوب', poolR.filter(i => i.st && !repOf(i)).length]);\\n  if (!rOpts.some(o => o[0] === F.rep)) F.rep = '__all';\\n  fillDD('ddStatus', sOpts, F.status, (k) => { F.status = k; renderList(); });\\n  fillDD('ddRep', rOpts, F.rep, (k) => { F.rep = k; renderList(); });\\n}\\nfunction fillDD(id, opts, value, onPick) {\\n  const dd = $(id), cur0 = opts.find(o => o[0] === value) || opts[0];\\n  dd.querySelector('.lbl').textContent = cur0[1]; dd.querySelector('small').textContent = cur0[2];\\n  const menu = dd.querySelector('.menu');\\n  menu.innerHTML = opts.map(([k, l, n]) => `<div data-k=\\\"${esc(k)}\\\" class=\\\"${k === value ? 'on' : ''}\\\"><span>${k === value ? '✓ ' : ''}${esc(l)}</span><small>${n}</small></div>`).join('');\\n  menu.onclick = (e) => { const d = e.target.closest('[data-k]'); if (!d) return; closeDDs(); onPick(d.dataset.k); };\\n}\\nfunction closeDDs() { document.querySelectorAll('.dd').forEach(d => { d.classList.remove('open'); d.querySelector('.menu').classList.add('hidden'); d.querySelector('i').textContent = '▾'; }); }\\ndocument.querySelectorAll('.dd .dbtn').forEach(b => b.addEventListener('click', (e) => {\\n  e.stopPropagation(); const dd = b.parentElement, was = dd.classList.contains('open'); closeDDs();\\n  if (!was) { dd.classList.add('open'); dd.querySelector('.menu').classList.remove('hidden'); dd.querySelector('i').textContent = '▴'; }\\n}));\\ndocument.addEventListener('click', (e) => { if (!e.target.closest('.dd')) closeDDs(); });\\n\\nconst isOpen = (inv) => inv.open != null ? inv.open : isReview(statusOf(inv));   // review invoices start open, ready ones closed\\n\\nfunction cardHTML(inv) {\\n  const s = statusOf(inv), st = inv.st;\\n  const thumb = inv.img ? `<img class=\\\"thumb\\\" src=\\\"${inv.img}\\\" alt=\\\"\\\">` : '<div class=\\\"thumb\\\"></div>';\\n  const repLine = `<span class=\\\"rep\\\">${IC_TRUCK}${esc(repOf(inv) || 'بدون مندوب')}${st ? ` · ${countItems(st.rows.length)}` : ` · فاتورة ${inv.n}`}</span>`;\\n  if (s === 'reading') {\\n    return `<div class=\\\"icard reading\\\" data-inv=\\\"${inv.id}\\\"><div class=\\\"ch\\\">${thumb}<div class=\\\"who\\\"><b class=\\\"none\\\">${IC_STORE}العميل هيُقترح بعد القراءة</b>${repLine}</div>\\n      <span class=\\\"chip c-read\\\">${inv.state === 'reading' ? '<span class=\\\"ring\\\"></span>بتتقري' : '⏸ في الدور'}</span></div></div>`;\\n  }\\n  if (inv.state === 'error') {\\n    return `<div class=\\\"icard bad\\\" data-inv=\\\"${inv.id}\\\"><div class=\\\"ch\\\">${thumb}<div class=\\\"who\\\"><b class=\\\"none\\\">${IC_STORE}القراءة فشلت</b><span class=\\\"rep\\\">${esc(inv.error || '')}</span></div>\\n      <button class=\\\"retry\\\" data-retry=\\\"${inv.id}\\\" type=\\\"button\\\">↻ اقرأ تاني</button></div></div>`;\\n  }\\n  const v = evaluate(st);\\n  const probs = st.rows.filter(r => r._c.level).length;\\n  const chip = s === 'uploaded' ? `<span class=\\\"chip c-done\\\">☁️ اترفعت${inv.invoice_no ? ' · ' + esc(inv.invoice_no) : ''}</span>`\\n    : s === 'ready' ? '<span class=\\\"chip c-ok\\\">✅ جاهزة</span>'\\n    : !v.cust ? '<span class=\\\"chip c-bad\\\">❌ اختار العميل</span>'\\n    : s === 'bad' ? `<span class=\\\"chip c-bad\\\">❌ ${probs ? (probs === 1 ? 'صنف' : probs === 2 ? 'صنفين' : probs + ' أصناف') + ' لازم يتصلح' : 'لازم يتصلح'}</span>`\\n    : `<span class=\\\"chip c-warn\\\">⚠️ ${probs ? (probs === 1 ? 'صنف' : probs === 2 ? 'صنفين' : probs + ' أصناف') + ' للمراجعة' : 'للمراجعة'}</span>`;\\n  const name = st.customer ? `<b>${IC_STORE}${esc(st.customer)}${st.customerSuggested ? ' <span title=\\\"مقترح من الفاتورة\\\" style=\\\"font-size:.8em\\\">💡</span>' : ''}</b>`\\n    : `<b class=\\\"none\\\">${IC_STORE}${st.customerWritten ? 'مكتوب: ' + esc(st.customerWritten) : 'اختار العميل'}</b>`;\\n  const open = isOpen(inv);\\n  const table = open ? `<table class=\\\"items\\\"><tr><th>الصنف</th><th class=\\\"num\\\">الكمية</th><th class=\\\"num\\\">السعر</th><th class=\\\"num\\\">الإجمالي</th></tr>\\n    ${st.rows.map(r => `<tr class=\\\"${r._c.level === 'bad' ? 'b' : r._c.level === 'warn' ? 'w' : ''}\\\"><td>${esc(r.cat ? r.cat.name : r.written)}</td><td class=\\\"num\\\">${fmt(r.qty)}</td><td class=\\\"num\\\">${fmt(r.price)}</td><td class=\\\"num\\\">${fmt(r.total)}</td></tr>`).join('')}</table>` : '';\\n  const disc = v.t.disc > 0 ? `<div class=\\\"disc\\\"><span>المجموع ${fmt(v.t.sum)}</span><span>خصم <b>${fmt(v.t.disc)} (${v.t.pct.toFixed(1)}%)</b></span></div>` : '';\\n  return `<div class=\\\"icard ${s}\\\" data-inv=\\\"${inv.id}\\\"><div class=\\\"ch\\\">${thumb}<div class=\\\"who\\\">${name}${repLine}</div>${chip}</div>\\n    ${table}${disc}<div class=\\\"foot\\\"><button class=\\\"toggle\\\" data-toggle=\\\"${inv.id}\\\" type=\\\"button\\\">${open ? '▴ إخفاء الأصناف' : `▾ الأصناف (${st.rows.length})`}</button><span>الصافي <b>${fmt(v.t.net)}</b></span></div></div>`;\\n}\\n\\nfunction renderList() {\\n  saveSoon();\\n  if ($('listView').classList.contains('hidden')) return;\\n  renderDropdowns();\\n  const vis = visible();\\n  const scoped = INV.filter(i => matchRep(i));\\n  const c = (k) => scoped.filter(i => matchStatus(i, k)).length;\\n  const cost = INV.reduce((s, i) => s + ((i.st && i.st.costTotal && i.st.costTotal.cost_egp) || (i.st && i.st.cost && i.st.cost.cost_egp) || 0), 0);\\n  $('sumline').innerHTML = `<b>${scoped.length}</b> فواتير · <span class=\\\"g\\\"><b>${c('ready')}</b> جاهزة</span> · <span class=\\\"y\\\"><b>${c('review')}</b> مراجعة</span> · <span class=\\\"bl\\\"><b>${c('reading')}</b> بتتقري</span>`\\n    + (c('uploaded') ? ` · <b>${c('uploaded')}</b> اترفعت` : '') + (cost ? ` · 💰 ${money(cost)}` : '');\\n  $('cards').innerHTML = vis.length ? vis.map(cardHTML).join('') : '<div class=\\\"empty-list\\\">مفيش فواتير بالفلتر ده</div>';\\n  const withItems = vis.filter(i => i.st && !i.uploaded);\\n  const allOpen = withItems.length && withItems.every(isOpen);\\n  $('toggleAll').textContent = allOpen ? '▴ اخفي كل الأصناف' : '▾ أظهر كل الأصناف';\\n  $('toggleAll').disabled = !withItems.length;\\n  const ready = vis.filter(i => statusOf(i) === 'ready');\\n  $('confirmReady').textContent = `✔ أكّد الجاهز (${ready.length})`; $('confirmReady').disabled = !ready.length;\\n  $('subtitle').textContent = `${today()} · ${INV.length} ${INV.length === 1 ? 'فاتورة' : 'فواتير'}`;\\n}\\n// refresh the reading cards every second\\n\\n\\n$('cards').addEventListener('click', (e) => {\\n  const t = e.target.closest('[data-toggle]');\\n  if (t) { const inv = INV.find(i => i.id === +t.dataset.toggle); inv.open = !isOpen(inv); renderList(); return; }\\n  const r = e.target.closest('[data-retry]');\\n  if (r) { const inv = INV.find(i => i.id === +r.dataset.retry); inv.state = 'queued'; inv.session = newSession(); inv.sent = false; inv.autoRetried = false; pump(); return; }\\n  const card = e.target.closest('[data-inv]'); if (!card) return;\\n  const inv = INV.find(i => i.id === +card.dataset.inv);\\n  if (inv.st && !inv.uploaded) openInv(inv);\\n});\\n$('toggleAll').addEventListener('click', () => {\\n  const vis = visible().filter(i => i.st && !i.uploaded); const allOpen = vis.every(isOpen);\\n  vis.forEach(i => { i.open = !allOpen; }); renderList();\\n});\\n[$('addPhotos'), $('addPhotosTop')].forEach(b => b.addEventListener('click', () => $('file').click()));\\n\\n// confirm every ready invoice shown by the filters\\n$('confirmReady').addEventListener('click', async () => {\\n  const ready = visible().filter(i => statusOf(i) === 'ready');\\n  if (!ready.length) return;\\n  $('confirmReady').disabled = true; let ok = 0, fail = 0, cost = 0;\\n  for (const inv of ready) {\\n    $('listMsg').innerHTML = `<span class=\\\"spinner\\\"></span> بيرفع ${ok + fail + 1} من ${ready.length}...`;\\n    try { const out = await upload(inv); ok++; cost += (out.total_cost && out.total_cost.cost_egp) || 0; } catch (e) { fail++; }\\n    renderList();\\n  }\\n  $('listMsg').textContent = '';\\n  toast(`✅ اترفع ${ok} ${ok === 1 ? 'فاتورة' : 'فواتير'}` + (fail ? ` — ${fail} فشلت` : '') + (cost ? ` · 💰 ${money(cost)}` : ''));\\n  renderList();\\n});\\n\\nasync function upload(inv) {\\n  const st = inv.st, v = evaluate(st);\\n  const payload = {\\n    customer_id: v.cust ? v.cust.id : null, customer_name: st.customer, date: st.date, sales_rep: st.rep, session_id: inv.session,\\n    items: st.rows.map(r => ({ item_code: r.cat.code, item_name: r.cat.name, written_name: r.written, qty: r.qty, price: r.price, total: r.total, list_price: r.cat.price })),\\n    lines_sum: v.t.sum, discount: v.t.disc, grand_total: round2(v.t.net), original_reading: inv.result, reading_cost: inv.costSum || null,\\n  };\\n  const res = await fetch('invoice-confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });\\n  if (!res.ok) throw new Error('HTTP ' + res.status);\\n  const out = await res.json().catch(() => ({}));\\n  inv.uploaded = true; inv.invoice_no = out.invoice_no || ''; inv.totalCost = out.total_cost || null;\\n  return out;\\n}\\nlet toastTimer = null;\\nfunction toast(t) { $('toast').textContent = t; $('toast').classList.remove('hidden'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').classList.add('hidden'), 4500); }\\n\\n// ======================= edit one invoice =======================\\nlet cur = null, S = null;\\nfunction openInv(inv) {\\n  cur = inv; S = inv.st;\\n  $('listView').classList.add('hidden'); $('reviewView').classList.remove('hidden'); $('title').textContent = 'تعديل الفاتورة';\\n  $('photo').src = inv.img; $('net').value = S.netTouched ? S.net : ''; $('confirmMsg').textContent = '';\\n  window.scrollTo(0, 0); render();\\n}\\nfunction navList() { return visible().filter(i => i.st && !i.uploaded); }\\nfunction render() {\\n  saveSoon();\\n  if (!cur) return;\\n  const list = navList(), idx = list.indexOf(cur);\\n  $('posInv').textContent = idx >= 0 ? `${idx + 1} من ${list.length}` : '';\\n  $('prevInv').disabled = idx <= 0; $('nextInv').disabled = idx < 0 || idx >= list.length - 1;\\n  $('hCustomer').innerHTML = S.customer ? `${IC_STORE}${esc(S.customer)}${S.customerSuggested ? ' <span style=\\\"font-size:.8em\\\">💡</span>' : ''}`\\n    : `${IC_STORE}<span style=\\\"color:var(--bad)\\\">اختار العميل</span>${S.customerWritten ? ` <span style=\\\"font-size:12px;color:var(--muted)\\\">(مكتوب: ${esc(S.customerWritten)})</span>` : ''}`;\\n  $('hMeta').innerHTML = [esc(S.date), S.rep ? `${IC_TRUCK}${esc(S.rep)}` : '❓ بدون مندوب'].join(' · ');\\n  const v = evaluate(S);\\n  const prob = [], ok = [];\\n  S.rows.forEach((row, i) => (row._c.level ? prob : ok).push([row, i]));\\n  prob.sort((a, b) => (a[0]._c.level === 'bad' ? 0 : 1) - (b[0]._c.level === 'bad' ? 0 : 1));\\n  const li = ([row, i]) => {\\n    const c = row._c, first = c.msgs.find(x => x[0] === c.level);\\n    const sugg = '';\\n    const less = c.msgs.find(x => x[1].startsWith('أقل'));\\n    return `<div class=\\\"it ${c.level}\\\" data-id=\\\"${row.id}\\\"><span class=\\\"n\\\">${i + 1}</span>\\n      <div class=\\\"main\\\"><div class=\\\"name\\\">${esc(row.cat ? row.cat.name : (row.written || 'صنف جديد'))}</div>\\n      ${c.level ? `<div class=\\\"why\\\">${esc(first ? first[1] : '')}${esc(sugg)}</div>` : `<div class=\\\"sub2\\\">${fmt(row.qty)} × ${fmt(row.price)}${less ? ' · ' + esc(less[1]) : ''}</div>`}</div>\\n      <span class=\\\"tot\\\">${fmt(row.total)}</span><span class=\\\"st\\\">${c.level ? '✏️' : '✅'}</span></div>`;\\n  };\\n  $('probList').innerHTML = prob.map(li).join(''); $('okList').innerHTML = ok.map(li).join('');\\n  $('probTitle').style.display = prob.length ? '' : 'none';\\n  $('okTitle').textContent = ok.length ? (prob.length ? `سليم (${ok.length})` : `الأصناف (${ok.length})`) : '';\\n  const t = v.t;\\n  $('sum').textContent = fmt(t.sum);\\n  $('discountCell').textContent = t.disc ? `${fmt(t.disc)} (${t.pct.toFixed(1)}%)` : '0';\\n  if (!S.netTouched) $('net').placeholder = fmt(t.sum);\\n  $('barNet').textContent = fmt(t.net);\\n  $('net').classList.remove('bad', 'warn'); $('netMsg').className = 'msg'; $('netMsg').textContent = '';\\n  if (t.net > t.sum + 0.01) { $('net').classList.add('bad'); $('netMsg').className = 'msg bad'; $('netMsg').textContent = 'الصافي أكبر من المجموع'; }\\n  else if (t.pct > MAX_INVOICE_DISCOUNT) { $('net').classList.add('warn'); $('netMsg').className = 'msg warn'; $('netMsg').textContent = `خصم ${t.pct.toFixed(0)}% كبير — اتأكد من الرقم المكتوب بعد الخصم`; }\\n  $('notes').innerHTML = [...S.invoiceIssues.map(x => '• ' + esc(x)), ...S.notes.map(x => 'ℹ️ ' + esc(x)),\\n    ...(S.margin ? ['📝 مكتوب في الهامش: ' + esc(S.margin)] : [])].join('<br>');\\n  const ct = S.costTotal, c1 = S.cost;\\n  if (c1 && c1.cost_egp != null) {\\n    $('cost').textContent = `💰 تكلفة القراءة: ${money(c1.cost_egp)} — ${c1.tokens.toLocaleString('en-US')} توكن` + (ct && ct.readings > 1 ? ` · إجمالي الفاتورة: ${money(ct.cost_egp)} (${ct.readings} قراءات)` : '');\\n    $('cost').classList.remove('hidden');\\n  } else $('cost').classList.add('hidden');\\n  const bn = $('banner');\\n  if (v.errors) { bn.className = 'banner bad'; bn.textContent = !v.cust ? '❌ اختار العميل من \\\"تعديل\\\" فوق' : `❌ فيه ${things(v.errors)} لازم تتصلح قبل الرفع — دوس عليها`; }\\n  else if (v.warnings) { bn.className = 'banner warn'; bn.textContent = `⚠️ فيه ${things(v.warnings)} محتاج تبص عليها — الباقي سليم`; }\\n  else { bn.className = 'banner ok'; bn.textContent = '✅ الفاتورة سليمة — راجعها مع الصورة وأكّد'; }\\n  $('confirmBtn').disabled = v.errors > 0;\\n  return v;\\n}\\n$('backList').addEventListener('click', showList);\\n$('prevInv').addEventListener('click', () => { const l = navList(), i = l.indexOf(cur); if (i > 0) openInv(l[i - 1]); });\\n$('nextInv').addEventListener('click', () => { const l = navList(), i = l.indexOf(cur); if (i >= 0 && i < l.length - 1) openInv(l[i + 1]); });\\n$('net').addEventListener('input', () => { S.net = $('net').value; S.netTouched = $('net').value !== ''; render(); });\\n\\n// ----- item bottom sheet -----\\nlet editing = null;\\nfunction openSheet(row) {\\n  editing = row;\\n  $('sTitle').textContent = row._new ? 'صنف جديد' : `سطر ${S.rows.indexOf(row) + 1}`;\\n  $('sWritten').textContent = row.written ? `مكتوب: ${row.written}` : '';\\n  $('sItem').value = row.cat ? row.cat.name : ''; $('sItem').placeholder = row.written || 'اكتب أي جزء من اسم الصنف';\\n  $('sQty').value = row.qty ?? ''; $('sPrice').value = row.price ?? ''; $('sTotal').value = row.total ?? '';\\n  $('sDelete').style.display = row._new ? 'none' : '';\\n  $('dim').classList.remove('hidden'); $('sheet').classList.remove('hidden'); sheetCheck();\\n}\\nfunction draft() {\\n  const same = $('sItem').value.trim() === (editing.cat ? editing.cat.name : '');\\n  return { ...editing, cat: byName.get($('sItem').value.trim()) || null, auto: editing.auto && same, byPrice: editing.byPrice && same, learned: editing.learned && same,\\n    qty: num($('sQty').value), price: num($('sPrice').value), total: num($('sTotal').value) };\\n}\\nfunction sheetCheck() {\\n  const d = draft(), c = check(d);\\n  $('sList').textContent = d.cat ? `سعر القائمة: ${fmt(d.cat.price)}` : '';\\n  $('sMsgs').innerHTML = c.msgs.map(([lv, t]) => `<div class=\\\"hintbox ${lv || 'info'}\\\"><span>${esc(t)}</span></div>`).join('')\\n    + (d.byPrice && d.options.length ? `<div class=\\\"hintbox info\\\" style=\\\"flex-wrap:wrap;gap:6px\\\"><span style=\\\"width:100%\\\">اختار الصح:</span>${d.options.map(o => `<button type=\\\"button\\\" class=\\\"optPick\\\" data-o=\\\"${esc(o)}\\\">${esc(o)}</button>`).join('')}</div>` : '')\\n    + (fixOf(d) && Math.abs(d.qty * d.price - d.total) > 1 ? `<div class=\\\"hintbox warn\\\"><span>💡 الصح غالبًا ${fmt(fixOf(d).qty)} × ${fmt(fixOf(d).price)}</span><button type=\\\"button\\\" id=\\\"sUse\\\">استخدم</button></div>` : '');\\n  $('sMsgs').querySelectorAll('.optPick').forEach(b => b.addEventListener('click', () => { $('sItem').value = b.dataset.o; sheetCheck(); }));\\n  const use = $('sUse');\\n  if (use) use.addEventListener('click', () => { const f = fixOf(d); $('sQty').value = f.qty; $('sPrice').value = f.price; recalcSheet(); });\\n}\\nfunction recalcSheet() { const q = num($('sQty').value), p = num($('sPrice').value); if (q != null && p != null) $('sTotal').value = round2(q * p); sheetCheck(); }\\nfunction closeSheets() { ['dim', 'sheet', 'hsheet'].forEach(id => $(id).classList.add('hidden')); editing = null; acHide(); }\\n$('sQty').addEventListener('input', recalcSheet); $('sPrice').addEventListener('input', recalcSheet);\\n$('sTotal').addEventListener('input', () => {   // total typed while the price is empty -> price = total ÷ qty\\n  const q = num($('sQty').value), t = num($('sTotal').value);\\n  if ($('sPrice').value === '' && q && t != null) $('sPrice').value = round2(t / q);\\n  sheetCheck(); }); $('sTotal').addEventListener('blur', () => { if ($('sTotal').value === '') recalcSheet(); });\\n$('sItem').addEventListener('input', sheetCheck);\\n$('sDone').addEventListener('click', () => {\\n  const d = draft(); delete d._new;\\n  if (editing._new) S.rows.push(d); else S.rows[S.rows.indexOf(editing)] = d;\\n  closeSheets(); render();\\n});\\n$('sDelete').addEventListener('click', () => { S.rows = S.rows.filter(r => r !== editing); closeSheets(); render(); });\\n$('dim').addEventListener('click', closeSheets);\\ndocument.addEventListener('click', (e) => {\\n  if (!cur) return;\\n  const it = e.target.closest('.it[data-id]'); if (!it) return;\\n  const row = S.rows.find(r => r.id === +it.dataset.id); if (row) openSheet(row);\\n});\\n$('addRow').addEventListener('click', () => openSheet({ id: ++seq, _new: true, written: '', cat: null, qty: null, price: null, total: null }));\\n\\n// ----- header sheet: customer / rep / date of this invoice -----\\n$('editHead').addEventListener('click', () => {\\n  $('hsCustomer').value = S.customer; $('hsRep').value = S.rep; $('hsDate').value = S.date; $('hsCustomerMsg').textContent = '';\\n  $('dim').classList.remove('hidden'); $('hsheet').classList.remove('hidden');\\n});\\n$('hsCancel').addEventListener('click', closeSheets);\\n$('hsDone').addEventListener('click', () => {\\n  const c = $('hsCustomer').value.trim();\\n  if (!custByName.get(c)) { $('hsCustomerMsg').className = 'msg bad'; $('hsCustomerMsg').textContent = 'اختار العميل من القائمة'; return; }\\n  if (c !== S.customer) S.customerSuggested = false;\\n  S.customer = c; S.rep = $('hsRep').value.trim(); S.date = $('hsDate').value || today();\\n  if (S.rep && !AC_SOURCES.reps.some(o => o.label === S.rep)) AC_SOURCES.reps.push({ label: S.rep, key: AR(S.rep) });\\n  closeSheets(); render();\\n});\\n\\n// ----- photo -----\\n$('photoScroll').addEventListener('click', () => $('photoScroll').classList.toggle('zoom'));\\n$('photoFab').addEventListener('click', () => { $('viewerImg').src = cur.img; $('viewer').classList.remove('hidden', 'zoom'); });\\n$('viewer').querySelector('.close').addEventListener('click', () => $('viewer').classList.add('hidden'));\\n$('viewer').querySelector('.zoomBtn').addEventListener('click', () => $('viewer').classList.toggle('zoom'));\\n\\n// ----- confirm this invoice -----\\n$('confirmBtn').addEventListener('click', async () => {\\n  const v = render(); if (v.errors) return;\\n  $('confirmBtn').disabled = true; $('confirmMsg').innerHTML = '<span class=\\\"spinner\\\"></span> بيرفع...';\\n  try {\\n    const out = await upload(cur);\\n    const tc = out.total_cost;\\n    toast(`✅ اترفعت فاتورة ${cur.st.customer}` + (out.invoice_no ? ` — ${out.invoice_no}` : '') + (tc ? ` · 💰 ${money(tc.cost_egp)}` : ''));\\n    showList();\\n  } catch (err) {\\n    $('confirmMsg').innerHTML = `<span style=\\\"color:var(--bad)\\\">❌ الرفع فشل: ${err.message}</span>`; $('confirmBtn').disabled = false;\\n  }\\n});\\n// ======================= keep the batch in this browser (reload / close and come back) =======================\\n// Photos and every invoice's state are kept in IndexedDB on this phone/browser. Readings that were running keep\\n// going in n8n, so after a reload the page just asks for their result again (nothing is read or paid twice).\\nconst DB_NAME = 'invoice-batch', KEEP_DAYS = 2;\\nlet dbp = null;\\nfunction db() {\\n  if (!dbp) dbp = new Promise((ok, no) => {\\n    const rq = indexedDB.open(DB_NAME, 1);\\n    rq.onupgradeneeded = () => { rq.result.createObjectStore('imgs'); rq.result.createObjectStore('meta'); };\\n    rq.onsuccess = () => ok(rq.result); rq.onerror = () => no(rq.error);\\n  });\\n  return dbp;\\n}\\nasync function idb(store, mode, fn) {\\n  try { const d = await db(); return await new Promise((ok, no) => { const t = d.transaction(store, mode); const r = fn(t.objectStore(store)); t.oncomplete = () => ok(r && r.result); t.onerror = () => no(t.error); }); }\\n  catch (e) { console.log('storage', e); return null; }\\n}\\nconst saveImg = (inv) => inv.img && idb('imgs', 'readwrite', s => s.put(inv.img, inv.id));\\nconst packRow = (r) => ({ id: r.id, written: r.written, cat: r.cat ? r.cat.code : null, qty: r.qty, price: r.price, total: r.total, auto: r.auto, learned: r.learned,\\n  suggestion: r.suggestion, byPrice: r.byPrice, options: r.options });\\nconst byCode = new Map(CATALOG.map(c => [c.code, c]));\\nfunction packInv(inv) {\\n  const { img, controller, ...o } = inv;\\n  if (o.st) o.st = { ...o.st, rows: o.st.rows.map(packRow) };\\n  return o;\\n}\\nlet saveTimer = null;\\nfunction saveSoon() { clearTimeout(saveTimer); saveTimer = setTimeout(() => idb('meta', 'readwrite', s => s.put({ at: Date.now(), seq, invSeq, list: INV.map(packInv) }, 'batch')), 300); }\\nasync function restore() {\\n  const meta = await idb('meta', 'readonly', s => s.get('batch'));\\n  if (!meta || !meta.list || !meta.list.length) return;\\n  // all photos in one go (much faster than one by one)\\n  const imgs = new Map();\\n  try {\\n    const d = await db();\\n    await new Promise((ok, no) => {\\n      const t = d.transaction('imgs', 'readonly'), s = t.objectStore('imgs'), a = s.getAll(), k = s.getAllKeys();\\n      t.oncomplete = () => { k.result.forEach((key, i) => imgs.set(key, a.result[i])); ok(); }; t.onerror = () => no(t.error);\\n    });\\n  } catch (e) { console.log('storage', e); }\\n  if (Date.now() - meta.at > KEEP_DAYS * 86400000) { clearAll(); return; }\\n  seq = meta.seq || 0; invSeq = meta.invSeq || 0;\\n  for (const o of meta.list) {\\n    if (o.st) o.st.rows = o.st.rows.map(r => ({ ...r, cat: r.cat ? byCode.get(r.cat) || null : null }));\\n    if (o.state === 'reading') o.state = 'queued';          // sent ones resume asking, unsent ones are sent again\\n    o.img = imgs.get(o.id) || null;\\n    if (!o.img && o.state === 'queued') { o.state = 'error'; o.error = 'الصورة ضاعت — صوّرها تاني'; }\\n    INV.push(o);\\n    if (o.st && o.st.rep && !AC_SOURCES.reps.some(x => x.label === o.st.rep)) AC_SOURCES.reps.push({ label: o.st.rep, key: AR(o.st.rep) });\\n  }\\n  showList(); pump();\\n  toast(`رجعت آخر دفعة: ${INV.length} ${INV.length === 1 ? 'فاتورة' : 'فواتير'}`);\\n}\\nfunction clearAll() { idb('imgs', 'readwrite', s => s.clear()); idb('meta', 'readwrite', s => s.clear()); }\\n$('newBatch').addEventListener('click', () => {\\n  const left = INV.filter(i => !i.uploaded).length;\\n  if (left && !confirm(`فيه ${left} ${left === 1 ? 'فاتورة' : 'فواتير'} لسه متأكدتش — هتتمسح. تكمّل؟`)) return;\\n  INV.length = 0; seq = 0; invSeq = 0; clearAll();\\n  $('listView').classList.add('hidden'); $('reviewView').classList.add('hidden'); $('uploadView').classList.remove('hidden');\\n  $('addPhotosTop').classList.add('hidden'); $('title').textContent = 'قراءة فواتير المبيعات'; cur = null;\\n});\\n// show the camera screen only after we know there is no saved batch (at most 3 s)\\nconst unhide = () => document.body.classList.remove('restoring');\\nsetTimeout(unhide, 3000);\\nrestore().finally(unhide);\\n\\n</script>\\n</body>\\n</html>\"\n  .replace('__CATALOG__', () => safe(ref.catalog_items))\n  .replace('__CUSTOMERS__', () => safe(ref.customers));\nreturn [{ json: { html } }];"
+      },
+      "name": "Build Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html; charset=utf-8"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Return Page",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        304,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "invoice-confirm",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Confirm Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// The confirmed (and possibly corrected) invoice from the page arrives here.\n// LEARNING: every confirmed line teaches \"this handwriting = this item\", and the same for the customer.\n// Stored in the workflow's own memory (static data) — kept between runs of the ACTIVE workflow\n// (runs from the editor's test URL do not save it).\nconst inv = $input.first().json.body || {};\nconst DIG = { '٠':0,'١':1,'٢':2,'٣':3,'٤':4,'٥':5,'٦':6,'٧':7,'٨':8,'٩':9 };\nconst norm = (s) => String(s || '').replace(/[٠-٩]/g, d => DIG[d])\n  .replace(/[ً-ْٰـ]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه')\n  .replace(/ى/g, 'ي').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/ء/g, '')\n  .replace(/[^\\p{L}\\p{N}]+/gu, ' ').trim().replace(/\\s+/g, ' ').toLowerCase();\nconst memory = $getWorkflowStaticData('global');\nmemory.items = memory.items || {}; memory.customers = memory.customers || {};\nconst learn = (table, written, target) => {\n  const k = norm(written); if (!k || !target) return false;\n  table[k] = table[k] || {}; table[k][target] = (table[k][target] || 0) + 1; return true;\n};\nlet learnedItems = 0;\nfor (const it of inv.items || []) if (learn(memory.items, it.written_name, it.item_code)) learnedItems++;\nconst customerWritten = inv.original_reading?.customer_written;\nconst learnedCustomer = learn(memory.customers, customerWritten, inv.customer_id);\nmemory.updated_at = new Date().toISOString();\n\n// total model cost of this invoice (every reading since the photo was chosen), then close its ledger\nconst EGP_PER_USD = 56.2;   // keep in sync with Parse & Validate\ndelete memory.costs;   // old ledger (no longer used)\nconst rc = inv.reading_cost;   // sum of all readings of this invoice, added up by the page\nconst total_cost = rc && rc.cost_usd != null ? { cost_usd: +rc.cost_usd.toFixed(6), cost_egp: +(rc.cost_usd * EGP_PER_USD).toFixed(2), tokens: rc.tokens, readings: rc.readings } : null;\n\nconst invoice_no = 'INV-' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '-' + Math.floor(Math.random() * 9000 + 1000);\n// Next step: save the invoice itself — Postgres / Google Sheets / ERPNext draft.\nreturn [{ json: { ok: true, invoice_no, total_cost, learned_items: learnedItems, learned_customer: learnedCustomer, invoice: inv } }];"
+      },
+      "name": "Save Invoice",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: true, invoice_no: $json.invoice_no, learned_items: $json.learned_items, total_cost: $json.total_cost }) }}",
+        "options": {}
+      },
+      "name": "Return Confirm",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -368,
+        1040
+      ]
+    },
+    {
+      "parameters": {
+        "path": "invoice-memory",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Memory Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -816,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Shows what the system has learned so far (open /webhook/invoice-memory in the browser).\n// To forget one entry: /webhook/invoice-memory?forget=<written text>\nconst memory = $getWorkflowStaticData('global');\nconst q = $input.first().json.query || {};\nif (q.forget) { const k = String(q.forget).trim(); delete memory.items?.[k]; delete memory.customers?.[k]; }\nreturn [{ json: { items: memory.items || {}, customers: memory.customers || {}, updated_at: memory.updated_at || null } }];"
+      },
+      "name": "Show Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -592,
+        1264
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json, null, 2) }}",
+        "options": {}
+      },
+      "name": "Return Memory",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -368,
+        1264
+      ]
+    }
+  ],
+  "connections": {
+    "Ack Job": {
+      "main": [
+        [
+          {
+            "node": "Reference Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Result": {
+      "main": [
+        [
+          {
+            "node": "Save Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result Request": {
+      "main": [
+        [
+          {
+            "node": "Find Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Job": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reply": {
+      "main": [
+        [
+          {
+            "node": "Return Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Job": {
+      "main": [
+        [
+          {
+            "node": "Delete Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Requests1": {
+      "main": [
+        [
+          {
+            "node": "Read Invoice1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Invoice1": {
+      "main": [
+        [
+          {
+            "node": "Wait For All",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page": {
+      "main": [
+        [
+          {
+            "node": "Reference Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze Request": {
+      "main": [
+        [
+          {
+            "node": "Ack Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reference Data": {
+      "main": [
+        [
+          {
+            "node": "Has Image?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Image?": {
+      "main": [
+        [
+          {
+            "node": "Build Requests1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait For All": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [
+          {
+            "node": "Store Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Page": {
+      "main": [
+        [
+          {
+            "node": "Return Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Request": {
+      "main": [
+        [
+          {
+            "node": "Save Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Invoice": {
+      "main": [
+        [
+          {
+            "node": "Return Confirm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory Request": {
+      "main": [
+        [
+          {
+            "node": "Show Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Show Memory": {
+      "main": [
+        [
+          {
+            "node": "Return Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
