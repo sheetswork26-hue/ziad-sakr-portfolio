@@ -16,7 +16,13 @@ flow:
   - { label: 'PostgreSQL + R2 images', kind: data }
   - { label: 'Sync Google Sheets', kind: data }
   - { label: 'Telegram + WhatsApp', kind: action }
-workflow: /workflows/cake-order-management.json
+workflow: /workflows/cake-add-order.json
+workflows:
+  - { label: "Add order", file: /workflows/cake-add-order.json }
+  - { label: "Search", file: /workflows/cake-search-order.json }
+  - { label: "Update", file: /workflows/cake-update-order.json }
+  - { label: "Telegram groups", file: /workflows/cake-telegram-groups.json }
+  - { label: "Delivery dispatch", file: /workflows/cake-delivery-dispatch.json }
 repo: https://github.com/sheetswork26-hue/n8n-projects/tree/main/Project4%20-%20Cake%20Order%20Management%20Automation
 ---
 

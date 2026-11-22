@@ -1,0 +1,238 @@
+{
+  "name": "Search order",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "get-order",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "name": "Search Order Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -560,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst body = $input.first()?.json?.body ?? {};\n\nconst orderCode = String(body.orderCode ?? '')\n  .trim()\n  .toLowerCase();\n\nconst phone = String(body.phone ?? '').trim();\nconst digits = phone.replace(/\\D/g, '');\n\n// Validate order code: 6 digits followed by -c\nif (!/^\\d{6}-c$/.test(orderCode)) {\n  return [{\n    json: {\n      valid: false,\n      success: false,\n      message: 'كود الطلب غير صحيح.'\n    }\n  }];\n}\n\n// Validate Egyptian mobile number\nif (!/^01[0125]\\d{8}$/.test(digits)) {\n  return [{\n    json: {\n      valid: false,\n      success: false,\n      message: 'رقم الموبايل غير صحيح.'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    valid: true,\n    orderCode,\n    phone: digits\n  }\n}];\n"
+      },
+      "name": "Validate Search Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "bcdf85a7-71c0-46e4-92ad-4e0d25e2b7f2",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -80,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "\nWITH input AS (\n    SELECT\n        LOWER(BTRIM($1::text)) AS order_code,\n        REGEXP_REPLACE(\n            COALESCE($2::text, ''),\n            '\\D', '', 'g'\n        ) AS phone\n),\n\nmatched_order AS (\n    SELECT o.*\n    FROM public.orders o\n    CROSS JOIN input i\n    WHERE LOWER(BTRIM(o.order_code)) = i.order_code\n      AND REGEXP_REPLACE(\n            COALESCE(o.customer_phone, ''),\n            '\\D', '', 'g'\n          ) = i.phone\n    ORDER BY o.id DESC\n    LIMIT 1\n),\n\naddons AS (\n    SELECT\n        oa.order_id,\n        JSONB_AGG(\n            JSONB_BUILD_OBJECT(\n                'productId', oa.product_id,\n                'productName', oa.product_name,\n                'unit', oa.unit,\n                'quantity', oa.quantity,\n                'unitPriceEGP', oa.unit_price_egp,\n                'designExtraEGP', oa.design_extra_egp,\n                'totalEGP', oa.total_egp\n            )\n            ORDER BY oa.id\n        ) AS items\n    FROM public.order_addons oa\n    WHERE oa.order_id IN (\n        SELECT id FROM matched_order\n    )\n    GROUP BY oa.order_id\n),\n\nimages AS (\n    SELECT\n        oi.order_id,\n\n        COALESCE(\n            JSONB_AGG(\n                JSONB_BUILD_OBJECT(\n                    'id', oi.id,\n                    'imageType', oi.image_type,\n                    'fileName', oi.file_name,\n                    'objectKey', oi.object_key,\n                    'mimeType', oi.mime_type,\n                    'fileSizeBytes', oi.file_size_bytes\n                )\n                ORDER BY oi.id\n            ) FILTER (\n                WHERE oi.image_type = 'cake'\n            ),\n            '[]'::jsonb\n        ) AS cake,\n\n        COALESCE(\n            JSONB_AGG(\n                JSONB_BUILD_OBJECT(\n                    'id', oi.id,\n                    'imageType', oi.image_type,\n                    'fileName', oi.file_name,\n                    'objectKey', oi.object_key,\n                    'mimeType', oi.mime_type,\n                    'fileSizeBytes', oi.file_size_bytes\n                )\n                ORDER BY oi.id\n            ) FILTER (\n                WHERE oi.image_type = 'deposit'\n            ),\n            '[]'::jsonb\n        ) AS deposit\n\n    FROM public.order_images oi\n    WHERE oi.order_id IN (\n        SELECT id FROM matched_order\n    )\n      AND oi.is_active = TRUE\n      AND oi.deleted_at IS NULL\n    GROUP BY oi.order_id\n)\n\nSELECT\n    (o.id IS NOT NULL) AS success,\n\n    CASE\n        WHEN o.id IS NULL\n        THEN 'لم يتم العثور على طلب مطابق لكود الطلب ورقم الموبايل.'\n        ELSE 'تم العثور على الطلب.'\n    END AS message,\n\n    CASE\n        WHEN o.id IS NULL THEN NULL\n\n        ELSE JSONB_BUILD_OBJECT(\n            'id', o.id,\n            'orderCode', o.order_code,\n            'name', o.customer_name,\n            'phone', o.customer_phone,\n            'moderatorName', o.moderator_name,\n\n            'fulfillmentMethod', o.fulfillment_method,\n            'city', o.city,\n            'area', o.area,\n            'addressDetails', o.address_details,\n\n            'deliveryDate',\n                TO_CHAR(o.delivery_date, 'YYYY-MM-DD'),\n            'deliveryTimeFrom', o.delivery_time_from,\n            'deliveryTimeTo', o.delivery_time_to,\n\n            'cakeType', o.cake_type,\n            'cakeSize', o.cake_size,\n            'dimensions', o.dimensions,\n            'numberOfTiers', o.number_of_tiers,\n            'filling', o.filling,\n            'covering', o.covering,\n            'details', o.details,\n\n            'basePriceEGP', o.base_price_egp,\n            'cakeDesignExtraEGP', o.cake_design_extra_egp,\n            'addOnsTotalEGP', o.addons_total_egp,\n            'addOns', COALESCE(a.items, '[]'::jsonb),\n\n            'deliveryFeeEGP', o.delivery_fee_egp,\n            'discountType', o.discount_type,\n            'discountInputValue', o.discount_input_value,\n            'discountAmountEGP', o.discount_amount_egp,\n            'totalOrderEGP', o.total_order_egp,\n\n            'depositEGP', o.deposit_egp,\n            'remainingEGP', o.remaining_egp,\n            'orderStatus', o.order_status,\n            'orderSummary', o.order_summary,\n\n            'submittedAt', o.submitted_at,\n            'createdAt', o.created_at,\n            'updatedAt', o.updated_at,\n\n            'images', JSONB_BUILD_OBJECT(\n                'cake', COALESCE(i.cake, '[]'::jsonb),\n                'deposit', COALESCE(i.deposit, '[]'::jsonb)\n            )\n        )\n    END AS \"order\"\n\nFROM (SELECT 1) AS seed\nLEFT JOIN matched_order o ON TRUE\nLEFT JOIN addons a ON a.order_id = o.id\nLEFT JOIN images i ON i.order_id = o.id;\n",
+        "options": {
+          "queryReplacement": "={{ [$json.orderCode, $json.phone] }}"
+        }
+      },
+      "name": "Find Order in PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        192,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "name": "Return Validation Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        192,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "bucketName": "cake-store",
+        "fileKey": "={{ $json.objectKey }}"
+      },
+      "name": "download Image to R2",
+      "type": "n8n-nodes-base.s3",
+      "typeVersion": 1,
+      "position": [
+        688,
+        368
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst order = input.order;\n\nif (!input.success || !order) {\n  return [{\n    json: {\n      success: false,\n      message: input.message || 'لم يتم العثور على الطلب'\n    }\n  }];\n}\n\nconst cakeImages = Array.isArray(order.images?.cake)\n  ? order.images.cake\n  : [];\n\nconst depositImages = Array.isArray(order.images?.deposit)\n  ? order.images.deposit\n  : [];\n\nconst allImages = [\n  ...cakeImages,\n  ...depositImages\n];\n\n// لا توجد صور في الطلب\nif (allImages.length === 0) {\n  return [{\n    json: {\n      ...order,\n      noImages: true,\n      images: {\n        cake: [],\n        deposit: []\n      }\n    }\n  }];\n}\n\n// كل صورة تصبح Item مستقل\nreturn allImages.map(image => ({\n  json: {\n    ...order,\n    image,\n    objectKey: image.objectKey\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        368
+      ],
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\nif (items.length === 0) {\n  return [];\n}\n\nconst firstJson = items[0].json;\n\n// الحفاظ على بيانات الطلب\nconst {\n  image,\n  objectKey,\n  images,\n  cakeImages,\n  depositImages,\n  ...order\n} = firstJson;\n\nconst downloadedImages = [];\n\nfor (let index = 0; index < items.length; index++) {\n  const item = items[index];\n\n  // تحديد اسم الـBinary Property تلقائيًا\n  const binaryProperty = Object.keys(item.binary ?? {})[0];\n\n  if (!binaryProperty) {\n    throw new Error(\n      `الصورة رقم ${index + 1}: لا يوجد Binary Data في المدخلات`\n    );\n  }\n\n  const binaryData = item.binary[binaryProperty];\n\n  const buffer = await this.helpers.getBinaryDataBuffer(\n    index,\n    binaryProperty\n  );\n\n  // بيانات الصورة الأصلية\n  const imageInfo = item.json.image ?? item.json;\n\n  downloadedImages.push({\n    ...imageInfo,\n    dataUrl: `data:${binaryData.mimeType};base64,${buffer.toString('base64')}`\n  });\n}\n\nreturn [\n  {\n    json: {\n      ...order,\n      images: downloadedImages\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        368
+      ],
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1216,
+        368
+      ]
+    }
+  ],
+  "connections": {
+    "Search Order Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Search Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Search Input": {
+      "main": [
+        [
+          {
+            "node": "Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Find Order in PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Order in PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "download Image to R2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "download Image to R2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

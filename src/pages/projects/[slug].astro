@@ -17,12 +17,17 @@ const { project, next } = Astro.props;
 const d = project.data;
 const { Content } = await render(project);
 
-// Read the sanitized workflow export at build time so it can be embedded interactively.
-let workflowJson = '';
-if (d.workflow) {
-  const file = path.join(process.cwd(), 'public', d.workflow);
-  if (fs.existsSync(file)) workflowJson = JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8')));
-}
+// Read the sanitized workflow export(s) at build time so they can be embedded interactively.
+// `workflows` (several, shown as tabs) wins over the single `workflow`.
+const list = d.workflows ?? (d.workflow ? [{ label: '', file: d.workflow }] : []);
+const flows = list
+  .map((w) => {
+    const file = path.join(process.cwd(), 'public', w.file);
+    return fs.existsSync(file) ? { ...w, json: JSON.stringify(JSON.parse(fs.readFileSync(file, 'utf8'))) } : null;
+  })
+  .filter((w): w is { label: string; file: string; json: string } => !!w);
+const workflowJson = flows[0]?.json ?? '';
+const multi = flows.length > 1;
 ---
 <Base title={d.title} description={d.summary}>
   <Fragment slot="head">
@@ -65,9 +70,19 @@ if (d.workflow) {
         {workflowJson && (
           <div class="panel workflow">
             <div class="panel-head">
-              <span class="eyebrow">The actual workflow</span>
-              <a class="mono dl" href={d.workflow} download>↓ Download JSON</a>
+              <span class="eyebrow">{multi ? `The actual workflows · ${flows.length}` : 'The actual workflow'}</span>
+              <a class="mono dl" id="wf-dl" href={flows[0].file} download>↓ Download JSON</a>
             </div>
+            {multi && (
+              <div class="wf-tabs" role="tablist" aria-label="Workflows">
+                {flows.map((w, i) => (
+                  <button type="button" role="tab" class="wf-tab" aria-selected={i === 0 ? 'true' : 'false'} data-i={i}>
+                    <span class="mono">{String(i + 1).padStart(2, '0')}</span>{w.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {multi && <script is:inline type="application/json" id="wf-data" set:html={JSON.stringify(flows.map((w) => ({ file: w.file, json: w.json }))).replace(/</g, '\\u003c')} />}
             <div class="n8n-frame">
               <n8n-demo workflow={workflowJson} frame="false" clicktointeract="true" collapseformobile="false"></n8n-demo>
             </div>
@@ -119,15 +134,38 @@ if (d.workflow) {
 
 <script>
   // The n8n-demo component renders a fixed 300px canvas; make it taller on larger screens.
-  customElements.whenDefined('n8n-demo').then(async () => {
-    const el = document.querySelector('n8n-demo') as any;
-    if (!el) return;
+  const sizeDemo = async (el: any) => {
     await el.updateComplete;
     const h = window.innerWidth < 640 ? 360 : 480;
     const style = document.createElement('style');
     style.textContent = `.embedded_workflow, .canvas-container, .overlay, iframe { height: ${h}px !important; }`;
     el.shadowRoot?.appendChild(style);
+  };
+  customElements.whenDefined('n8n-demo').then(() => {
+    const el = document.querySelector('n8n-demo');
+    if (el) sizeDemo(el);
   });
+
+  // Several workflows: tabs swap the canvas (a fresh <n8n-demo> each time) and the download link.
+  const data = document.getElementById('wf-data');
+  if (data) {
+    const flows: { file: string; json: string }[] = JSON.parse(data.textContent || '[]');
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('.wf-tab')];
+    const dl = document.getElementById('wf-dl') as HTMLAnchorElement;
+    tabs.forEach((tab) => tab.addEventListener('click', () => {
+      const i = Number(tab.dataset.i);
+      if (tab.getAttribute('aria-selected') === 'true') return;
+      tabs.forEach((t) => t.setAttribute('aria-selected', String(t === tab)));
+      tab.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+      dl.href = flows[i].file;
+      const old = document.querySelector('n8n-demo');
+      const el = document.createElement('n8n-demo');
+      for (const a of ['frame', 'clicktointeract', 'collapseformobile']) el.setAttribute(a, old?.getAttribute(a) ?? '');
+      el.setAttribute('workflow', flows[i].json);
+      old?.replaceWith(el);
+      sizeDemo(el);
+    }));
+  }
 </script>
 
 <style>
@@ -150,6 +188,17 @@ if (d.workflow) {
   .legend { display: flex; gap: 14px; font-size: 11.5px; color: var(--muted); flex-wrap: wrap; }
   .legend span::before { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 2px; background: var(--k); margin-right: 6px; }
   .dl { font-size: 13px; color: var(--accent); }
+  .wf-tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; margin: -8px 0 16px; padding-bottom: 2px; }
+  .wf-tabs::-webkit-scrollbar { display: none; }
+  .wf-tab {
+    flex: none; display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px;
+    border-radius: 999px; border: 1px solid var(--line-2); background: var(--surface); color: var(--muted);
+    font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; transition: border-color .2s ease, color .2s ease, background .2s ease;
+  }
+  .wf-tab .mono { font-size: 11.5px; color: var(--faint); }
+  .wf-tab:hover { color: var(--text); border-color: var(--muted); }
+  .wf-tab[aria-selected='true'] { color: var(--text); border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, var(--surface)); }
+  .wf-tab[aria-selected='true'] .mono { color: var(--c); }
   .n8n-frame { border-radius: 10px; overflow: hidden; border: 1px solid var(--line); background: #f5f5f5; }
   .n8n-frame :global(n8n-demo) { display: block; width: 100%; }
   .hint { margin-top: 12px; font-size: 12px; color: var(--faint); }

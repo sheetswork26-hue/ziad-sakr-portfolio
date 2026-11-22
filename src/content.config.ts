@@ -25,6 +25,8 @@ const projects = defineCollection({
     ),
     // Optional: path under /public to a sanitized n8n workflow export (no credentials!)
     workflow: z.string().optional(),
+    // Optional: several workflows shown as tabs above one canvas (overrides `workflow`)
+    workflows: z.array(z.object({ label: z.string(), file: z.string() })).optional(),
     // Optional: link to the project's source on GitHub
     repo: z.string().url().optional(),
     // Optional: Loom / YouTube embed URL
